@@ -23,6 +23,7 @@ dependencies = [
 
 [project.optional-dependencies]
 export = ["playwright>=1.44"]
+anthropic = ["anthropic>=1.0"]
 dev = [
     "pytest>=8.2",
     "pytest-asyncio>=0.23",
