@@ -45,7 +45,7 @@ Consequences that shaped the design:
 
 | Sheet page | Blocks | Schema targets |
 |---|---|---|
-| 1 | Bio; 9 characteristic circles + 4 advance ticks each; 3-column skills grid (48 printed skills, 10 dagger group-skills with write-in lines); Wounds; Fate; Armour diagram (6 locations); Insanity; Corruption; Movement | `bio`, `characteristics`, `skills`, `wounds`, `fatePoints`, `armour`, `insanity`, `corruption`, `movement` |
+| 1 | Bio; 9 characteristic circles + 4 advance ticks each; 3-column skills grid (48 printed skills, 11 dagger group-skills with write-in lines); Wounds; Fate; Armour diagram (6 locations); Insanity; Corruption; Movement | `bio`, `characteristics`, `skills`, `wounds`, `fatePoints`, `armour`, `insanity`, `corruption`, `movement` |
 | 2 | 3 ranged + 4 melee weapon boxes; Talents and Traits; Gear (21 lines); Weapon Training grid (8 basic / 8 pistol / 4 melee / 4 exotic) | `weapons`, `talentsAndTraits`, `gear`, `weaponTraining` |
 | 3 | Rank 1-8 advance blocks (12 rows each); Elite Advances; Total/Spent XP | `advances` |
 | 4 | Psy Rating; Discipline; 6 power boxes; Minor Powers table (32 printed rows + 8 write-ins) | `psychic` |
@@ -90,7 +90,7 @@ scribe-40k/
 ├── config.toml                                provider / model selection
 ├── assets/
 │   ├── armour-silhouette.png                  extracted from the template
-│   └── page-fingerprints.json                 coarse grayscale vectors, 5 template pages
+│   └── page-fingerprints.json                 layout fingerprints + printed vocabulary
 ├── data/characters/<id>/                      gitignored runtime state
 │   ├── character.json                         validates against the schema
 │   ├── report.json                            validates against the report schema
@@ -101,14 +101,22 @@ scribe-40k/
 │   ├── constants.py      printed-truth tables
 │   ├── derive.py         computed fields + consistency rules
 │   ├── blank.py          blank-character factory
-│   ├── llm/              base · mistral · openai_compat · anthropic · registry
-│   ├── pipeline/         ingest · classify · ocr · map · validate · report
+│   ├── pointer.py        RFC 6901 pointers, the shared address vocabulary
+│   ├── llm/              base · config · mistral · openai_compat · anthropic ·
+│   │                     offline (passthrough + fixtures) · cache · registry
+│   ├── pipeline/         fingerprint · ingest · sections · mapper · validate ·
+│   │                     report · run
 │   ├── export/pdf.py     Playwright print pipeline
+│   ├── tools/            build_assets · record_layout
 │   ├── store.py          JSON-file repository
 │   ├── api.py            FastAPI
-│   └── cli.py            scribe extract | serve | export
-├── frontend/src/sheet/   Page1..Page5, sheet.css, print.css
-└── tests/
+│   └── cli.py            scribe extract | list | show | export | serve
+├── frontend/src/
+│   ├── components/       Field · FlagPopover · ReviewBar · Repeat
+│   ├── sheet/            Page1..Page4 (4 holds both psychic pages), sheet.css, print.css
+│   ├── state.tsx         document, autosave, flag index
+│   └── pointer.ts        the TypeScript half of the pointer vocabulary
+└── tests/                215 tests
 ```
 
 ---
@@ -127,11 +135,31 @@ Deterministic, no LLM spend:
 
 1. **Blank detection** by ink coverage. In the sample, content pages sit at 15-25% of pixels
    below the 240 threshold; duplex backs at 0.2% or less.
-2. **Template matching** — each candidate page is downscaled to a coarse grayscale vector and
-   correlated against `assets/page-fingerprints.json`. Best match above threshold assigns the
-   sheet page number.
+2. **Template matching** — each candidate page is cropped to its ink bounding box,
+   downscaled to a coarse grayscale vector, and correlated against
+   `assets/page-fingerprints.json`.
 3. Anything left over becomes an **unrecognised page**, surfaced in the UI rather than
    silently dropped. The sample's two notes pages land here.
+
+Three things about this only emerged from building it:
+
+**Cropping to the ink box is not optional.** The sample is a 213 x 276 mm sheet photocopied
+onto A4, so its printed area sits at a different offset and scale from the template's.
+Without normalisation the correct match scored 0.59 and the ranking was wrong for four
+pages out of five; with it, 0.96.
+
+**Per-page decisions are not enough.** Template pages 4 and 5 are both "PSYCHIC POWERS" and
+share nearly all their furniture, so sheet page 4 splits 0.63/0.60 between them. Pages are
+assigned *together*, letting confident matches claim their template first, which resolves
+the weak one by elimination.
+
+**A sheet page needs more than one fingerprint.** This application's own rendering of a page
+is a lookalike of the printed original, not a pixel twin, and the two correlate at about
+0.38 — so a sheet exported by this tool could not be imported back into it. Each page
+therefore carries several *layout variants*: `template` from the printed original, plus
+`html:sparse` and `html:full` recorded from this app's own export by
+`scribe40k.tools.record_layout`. Two html shapes are needed because page 3 is mostly
+whitespace, so blank and fully-written versions of it correlate at only 0.46.
 
 ### Stage 2 · OCR (pluggable)
 
@@ -144,9 +172,15 @@ Deterministic, no LLM spend:
 | `anthropic` | Claude vision |
 | `passthrough` | Use the PDF's own text layer, no API call |
 
-Per-page classification decides the route: a page with a real text layer skips OCR entirely.
-Results are cached on disk keyed by `(file_hash, provider, model)`, so re-running the mapper
-costs nothing.
+Per-page classification decides the route: a page with a real text layer skips OCR
+entirely. Results are cached on disk keyed by page content, provider and model, so
+re-running the mapper after a prompt change costs nothing. Failures are never cached: a
+transient outage should not poison every later run.
+
+Two questions are deliberately kept apart here, having been conflated in a first pass.
+*Does this page have a text layer* decides whether OCR is needed; *does it carry player
+data* decides whether it is worth reading. Using the second to answer the first sent
+digitally-produced but lightly-filled pages through OCR for nothing.
 
 ### Stage 3 · Map (pluggable reasoning LLM)
 
@@ -156,15 +190,28 @@ in parallel and fail independently:
 `bio+characteristics` (p1) · `skills` (p1) · `combat-state` (p1) · `page2` (p2) ·
 `advances` (p3) · `psychic` (p4-5)
 
-Each returns an **envelope**, not the target schema directly, so uncertainty survives the hop:
+Each returns an **envelope** — `data`, `uncertain`, `unmapped` — rather than raw schema
+fragments:
 
 ```json
-{"pointer": "/bio/career", "value": "Adeptus Arbites",
- "confidence": 0.42, "evidence": {"page": 1, "snippet": "Career_ Adeptus Arb...", "bbox": [0, 0, 0, 0]}}
+{
+  "data": {"bio": {"career": "Adeptus Arbites"}},
+  "uncertain": [{"pointer": "/bio/career", "reason": "faint pencil", "confidence": 0.42,
+                 "alternatives": ["Adept"], "snippet": "Career_ Adeptus Arb..."}],
+  "unmapped": [{"text": "+30 Deceive", "location": "left margin beside Demolition"}]
+}
 ```
 
+The original plan had the model emit a JSON Pointer per field. Asking instead for a natural
+nested fragment plus a *separate* list of doubts proved markedly more tractable, and it is
+exactly what the review UI needs: values to fill in, and a list of what to highlight.
+
+Each job also declares which root keys it owns, so a skills job answering with a `bio` block
+cannot silently overwrite another section's work.
+
 Structured-output / JSON-schema mode where the provider supports it; prompt + repair loop
-where it does not.
+where it does not. `extract_json` recovers a payload from fenced blocks, prose preambles and
+trailing explanations.
 
 **Page images go to the reasoning model alongside the OCR text** whenever the model is
 vision-capable. The ticks in the skills grid and the weapon-training block are most of the
@@ -181,6 +228,11 @@ and the 32-row minor-power table (name / threshold / focus / sustain).
 
 `derive.py` computes `bonus = floor(total / 10)`, `proficiency.modifier` from `level` per the
 schema's `$defs` rules, and gear `quantity` from a leading `"3 x ..."`.
+
+The prompts tell the model to omit proficiency modifiers because they are derivable — but
+specialisation lists replace wholesale on merge, so their items arrived without one and
+failed validation. `SkillProficiency` now derives its modifier from its level on input,
+which is correct in general: the modifier is a pure function of the level.
 
 ### Stage 5 · Validate and flag
 
@@ -200,9 +252,17 @@ schema's `$defs` rules, and gear `quantity` from a leading `"3 x ..."`.
 `report.json` is a **separate file**: the character schema is `additionalProperties: false`
 throughout, so confidence data cannot be inlined without breaking validation.
 
-Per field: `status` in `{ok, needs_review, unresolved, user_fixed}`, confidence, evidence
-(page, snippet, bbox), and alternative readings. Plus `unmapped[]` — text found on the sheet
-that the mapper could not place.
+Per field: `status` in `{needs_review, user_fixed, accepted, dismissed}`, confidence,
+evidence (PDF page, sheet page, snippet, bbox) and alternative readings. Plus `unmapped[]`
+— text found on the sheet that the mapper could not place.
+
+Every character carries a report, imported or not. One typed in by hand gets a report with
+no `source` and no `models`, so consistency flags behave identically whichever way the sheet
+came into existence; without this, hand-made characters got no checking at all.
+
+Flags a human has resolved survive revalidation — an accepted inconsistency must not
+reappear after an unrelated edit — while model-confidence flags, which cannot be recomputed
+from the document, are carried through untouched.
 
 ---
 
@@ -256,11 +316,27 @@ being clipped, so an expanded sheet always prints in full.
 
 ## 7. PDF export
 
-`POST /api/characters/{id}/export.pdf` drives Playwright (headless Chromium) to the app's own
-`/print/{id}` route and calls `page.pdf()` with `preferCSSPageSize`. Same DOM as the editor,
-so export cannot drift from what you see.
+Playwright (headless Chromium) is pointed at the app's own `/print/{id}` route and calls
+`page.pdf()`. Same components, same stylesheet, in print mode — so the export cannot drift
+from what the editor shows, and there is no coordinate map to maintain alongside the layout.
+Measured output: **213.1 × 275.8 mm** against the template's 213 × 276.
 
-Page-size options: native 213 × 276 mm (default), A4, Letter.
+Page-size options: native (default), A4, Letter.
+
+Four things the first working export exposed:
+
+- Page 1 overflowed onto a second sheet. The density rules in `sheet.css` that make it fit
+  are load-bearing for export, not cosmetic.
+- In the narrow Insanity and Corruption blocks, labels printed on top of their values.
+- Labelled checkboxes in the weapon-training grid collapsed onto one line, because a label
+  was being rendered inside an 11px box.
+- The copyright line sat *after* the last page, so it landed on page 3 for a non-psyker and
+  page 5 otherwise — pushing out a fourth blank page, and changing that page's fingerprint.
+  It now prints at the foot of every page, as the paper does.
+
+Empty rank blocks and weapon boxes **do** print, because the paper prints them empty to
+write into. The psychic pages do not, because most characters are not psykers and two blank
+pages on every sheet is worse than useless.
 
 ---
 
@@ -282,7 +358,7 @@ on the CLI. Adding a provider means one new file implementing two protocols.
 
 ---
 
-## 9. Build order
+## 9. Build order (completed)
 
 1. Schema to pydantic models, `constants.py`, `derive.py`, blank-character factory, tests
 2. Ingest + classify + provider abstraction (Mistral, OpenAI-compatible), fixture-based
@@ -292,7 +368,10 @@ on the CLI. Adding a provider means one new file implementing two protocols.
 5. React sheet — page 1 first (hardest layout), then 2-5
 6. Flag / review affordances layered onto the editor
 7. Playwright export + print CSS tuned against the original render
-8. End-to-end: fill a sheet in the UI, export, re-ingest, compare
+8. End-to-end: fill a sheet in the UI, export, re-ingest, compare — this is
+   `tests/test_export.py::TestRoundTrip`, and it is the strongest check in the suite,
+   because it exercises the real components, the real stylesheet and the real classifier
+   together. It is what surfaced the layout-variant and text-layer problems above.
 
 ---
 
