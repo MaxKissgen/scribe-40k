@@ -106,10 +106,17 @@ class SectionRecord(Strict):
 
 
 class ExtractionReport(Strict):
+    """Provenance and review state for one character.
+
+    Every character has one, imported or not. A character created by hand carries a report
+    with no source and no models, so that consistency flags behave identically whichever
+    way the sheet came into existence.
+    """
+
     version: Literal[1] = 1
     generatedAt: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
-    source: SourceRef
-    models: dict[str, ModelRef]
+    source: SourceRef | None = None
+    models: dict[str, ModelRef] | None = None
     pages: list[PageRecord] = Field(default_factory=list)
     flags: list[Flag] = Field(default_factory=list)
     unmapped: list[UnmappedItem] = Field(default_factory=list)

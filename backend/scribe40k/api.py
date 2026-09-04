@@ -1,0 +1,462 @@
+"""HTTP API, and the server that hosts the editor.
+
+Single user, local machine, no auth. The editor talks to this; so does the PDF exporter,
+which drives a headless browser against this same server's ``/print/{id}`` route.
+
+One rule shapes most of the write endpoints: **the server owns derivation and validation.**
+The editor may send whatever the user typed, and gets back the finished document plus the
+current flags. That keeps the derived values (characteristic bonuses, proficiency
+modifiers) correct no matter what the client does, and means the review state is computed
+in one place rather than two.
+"""
+
+from __future__ import annotations
+
+import io
+from pathlib import Path
+from typing import Annotated, Any
+
+from fastapi import Body, FastAPI, File, HTTPException, Query, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
+
+from . import constants as K
+from . import pointer
+from .blank import blank_character
+from .llm.base import ProviderError
+from .llm.config import load_config
+from .llm.registry import build_ocr_provider, build_reasoning_provider
+from .paths import ARMOUR_SILHOUETTE, FRONTEND_DIST
+from .pipeline.report import ExtractionReport
+from .pipeline.run import extract as run_extract
+from .pipeline.validate import dedupe_flags, validate_document
+from .store import CharacterStore
+
+app = FastAPI(title="scribe-40k", version="0.1.0")
+
+# The Vite dev server runs on another port during development. In production the built
+# frontend is served from this same origin and none of this applies.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+store = CharacterStore()
+
+
+# --------------------------------------------------------------------------------------
+# Request bodies
+# --------------------------------------------------------------------------------------
+
+
+class PatchOperation(BaseModel):
+    """One field edit, addressed by JSON Pointer."""
+
+    pointer: str
+    value: Any = None
+
+
+class PatchRequest(BaseModel):
+    operations: list[PatchOperation] = Field(default_factory=list)
+
+
+class FlagUpdate(BaseModel):
+    pointer: str
+    rule: str
+    status: str
+
+
+class UnmappedUpdate(BaseModel):
+    id: str
+    status: str
+    assignedTo: str | None = None
+
+
+class CreateRequest(BaseModel):
+    name: str | None = None
+
+
+# --------------------------------------------------------------------------------------
+# Helpers
+# --------------------------------------------------------------------------------------
+
+
+def _require(character_id: str) -> dict:
+    if not store.exists(character_id):
+        raise HTTPException(404, f"no character '{character_id}'")
+    return store.load(character_id)
+
+
+def _report_or_empty(character_id: str) -> ExtractionReport | None:
+    return store.load_report(character_id)
+
+
+def _save_and_revalidate(character_id: str, document: dict) -> dict:
+    """Derive, validate, persist, and refresh the rule-based flags.
+
+    Flags a human has already acted on are preserved: re-running the rules must not
+    resurrect something the user has explicitly accepted or dismissed.
+    """
+    finished, rule_flags = validate_document(document)
+    store.save(character_id, finished)
+
+    # A character created by hand has no report yet, but its values still deserve
+    # checking, so one is started here rather than only on import.
+    report = _report_or_empty(character_id) or ExtractionReport()
+
+    resolved = {(f.pointer, f.rule): f.status for f in report.flags if f.status != "needs_review"}
+    # Model-confidence flags are not recomputable from the document, so they survive
+    # untouched; everything a rule produced is regenerated from the saved values.
+    kept = [f for f in report.flags if not _is_rule_flag(f.rule)]
+    for flag in rule_flags:
+        flag.status = resolved.get((flag.pointer, flag.rule), "needs_review")
+    report.flags = dedupe_flags([*kept, *rule_flags])
+    store.save_report(character_id, report)
+
+    return finished
+
+
+def _is_rule_flag(rule: str) -> bool:
+    """True for flags that :func:`validate_document` regenerates on every save."""
+    return not rule.startswith(("model.", "ocr.", "ingest."))
+
+
+def _payload(character_id: str, document: dict) -> dict:
+    report = _report_or_empty(character_id)
+    return {
+        "id": character_id,
+        "character": document,
+        "report": report.to_json_dict() if report else None,
+        "reviewCount": report.review_count if report else 0,
+    }
+
+
+# --------------------------------------------------------------------------------------
+# Characters
+# --------------------------------------------------------------------------------------
+
+
+@app.get("/api/characters")
+def list_characters() -> list[dict]:
+    return [s.__dict__ for s in store.list_characters()]
+
+
+@app.post("/api/characters", status_code=201)
+def create_character(body: CreateRequest) -> dict:
+    character_id = store.create_blank(body.name)
+    return _payload(character_id, store.load(character_id))
+
+
+@app.get("/api/characters/{character_id}")
+def get_character(character_id: str) -> dict:
+    return _payload(character_id, _require(character_id))
+
+
+@app.put("/api/characters/{character_id}")
+def replace_character(character_id: str, document: Annotated[dict, Body()]) -> dict:
+    _require(character_id)
+    return _payload(character_id, _save_and_revalidate(character_id, document))
+
+
+@app.patch("/api/characters/{character_id}")
+def patch_character(character_id: str, body: PatchRequest) -> dict:
+    """Apply pointer-addressed edits. This is what the editor's autosave calls."""
+    document = _require(character_id)
+
+    for operation in body.operations:
+        try:
+            pointer.set_value(document, operation.pointer, operation.value)
+        except (KeyError, IndexError, ValueError) as exc:
+            raise HTTPException(400, f"cannot write {operation.pointer}: {exc}") from exc
+
+    return _payload(character_id, _save_and_revalidate(character_id, document))
+
+
+@app.delete("/api/characters/{character_id}", status_code=204)
+def delete_character(character_id: str) -> Response:
+    _require(character_id)
+    store.delete(character_id)
+    return Response(status_code=204)
+
+
+# --------------------------------------------------------------------------------------
+# Review
+# --------------------------------------------------------------------------------------
+
+
+@app.get("/api/characters/{character_id}/report")
+def get_report(character_id: str) -> dict:
+    _require(character_id)
+    report = _report_or_empty(character_id)
+    if report is None:
+        raise HTTPException(404, "this character has no extraction report")
+    return report.to_json_dict()
+
+
+@app.post("/api/characters/{character_id}/flags")
+def update_flag(character_id: str, body: FlagUpdate) -> dict:
+    """Accept, fix or dismiss one flag."""
+    _require(character_id)
+    report = _report_or_empty(character_id)
+    if report is None:
+        raise HTTPException(404, "this character has no extraction report")
+
+    if body.status not in ("needs_review", "user_fixed", "accepted", "dismissed"):
+        raise HTTPException(400, f"unknown flag status '{body.status}'")
+
+    matched = 0
+    for flag in report.flags:
+        if flag.pointer == body.pointer and flag.rule == body.rule:
+            flag.status = body.status  # type: ignore[assignment]
+            matched += 1
+
+    if not matched:
+        raise HTTPException(404, f"no flag {body.rule} at {body.pointer}")
+
+    store.save_report(character_id, report)
+    return {"reviewCount": report.review_count, "updated": matched}
+
+
+@app.post("/api/characters/{character_id}/unmapped")
+def update_unmapped(character_id: str, body: UnmappedUpdate) -> dict:
+    """Assign a stray fragment to a field, or dismiss it."""
+    document = _require(character_id)
+    report = _report_or_empty(character_id)
+    if report is None:
+        raise HTTPException(404, "this character has no extraction report")
+
+    item = next((u for u in report.unmapped if u.id == body.id), None)
+    if item is None:
+        raise HTTPException(404, f"no unassigned fragment '{body.id}'")
+
+    if body.status == "assigned":
+        if not body.assignedTo:
+            raise HTTPException(400, "assigning a fragment needs a target pointer")
+        try:
+            pointer.set_value(document, body.assignedTo, item.text)
+        except (KeyError, IndexError, ValueError) as exc:
+            raise HTTPException(400, f"cannot write {body.assignedTo}: {exc}") from exc
+        item.assignedTo = body.assignedTo
+        _save_and_revalidate(character_id, document)
+        report = _report_or_empty(character_id)
+        item = next(u for u in report.unmapped if u.id == body.id)
+        item.assignedTo = body.assignedTo
+
+    item.status = body.status  # type: ignore[assignment]
+    store.save_report(character_id, report)
+
+    return _payload(character_id, store.load(character_id))
+
+
+# --------------------------------------------------------------------------------------
+# Source pages, for the evidence crops
+# --------------------------------------------------------------------------------------
+
+
+@app.get("/api/characters/{character_id}/pages/{pdf_page}")
+def get_page_image(
+    character_id: str,
+    pdf_page: int,
+    x0: Annotated[float | None, Query()] = None,
+    y0: Annotated[float | None, Query()] = None,
+    x1: Annotated[float | None, Query()] = None,
+    y1: Annotated[float | None, Query()] = None,
+) -> Response:
+    """A rendered page of the original scan, optionally cropped.
+
+    The crop parameters are what puts a picture of the actual handwriting beside a flagged
+    field, which is the difference between "is this right?" and a decision the user can
+    actually make.
+    """
+    _require(character_id)
+    path = store.pages_dir(character_id) / f"page-{pdf_page:02d}.png"
+    if not path.exists():
+        raise HTTPException(404, f"no image for PDF page {pdf_page}")
+
+    if None in (x0, y0, x1, y1):
+        return FileResponse(path, media_type="image/png")
+
+    try:
+        from PIL import Image
+    except ImportError:  # pragma: no cover - Pillow is a hard dependency
+        return FileResponse(path, media_type="image/png")
+
+    with Image.open(path) as image:
+        box = (
+            max(0, int(x0)),
+            max(0, int(y0)),
+            min(image.width, int(x1)),
+            min(image.height, int(y1)),
+        )
+        if box[2] <= box[0] or box[3] <= box[1]:
+            raise HTTPException(400, "the crop rectangle is empty")
+        buffer = io.BytesIO()
+        image.crop(box).save(buffer, format="PNG")
+
+    return Response(buffer.getvalue(), media_type="image/png")
+
+
+# --------------------------------------------------------------------------------------
+# Import
+# --------------------------------------------------------------------------------------
+
+
+@app.post("/api/import", status_code=201)
+async def import_pdf(
+    file: Annotated[UploadFile, File()],
+    name: Annotated[str | None, Query()] = None,
+) -> dict:
+    """Upload a scanned sheet and run the extraction pipeline over it."""
+    config = load_config()
+    try:
+        ocr = build_ocr_provider(config.ocr, cache=config.cache)
+        reasoning = build_reasoning_provider(config.reasoning, cache=config.cache)
+    except ProviderError as exc:
+        raise HTTPException(503, str(exc)) from exc
+
+    stem = Path(file.filename or "character").stem
+    character_id = store.new_id(name or stem)
+    directory = store.directory(character_id)
+    directory.mkdir(parents=True, exist_ok=True)
+
+    source = store.source_path(character_id)
+    source.write_bytes(await file.read())
+
+    outcome = run_extract(source, ocr, reasoning, image_dir=store.pages_dir(character_id))
+    store.save(character_id, outcome.character)
+    store.save_report(character_id, outcome.report)
+
+    return _payload(character_id, outcome.character)
+
+
+# --------------------------------------------------------------------------------------
+# Reference data for the editor
+# --------------------------------------------------------------------------------------
+
+
+@app.get("/api/reference")
+def reference() -> dict:
+    """Everything printed on the sheet, so the frontend need not restate it.
+
+    One source of truth for the skill list, its column layout, the armour locations and
+    the minor-power table. A duplicate of this in TypeScript would drift.
+    """
+    return {
+        "characteristics": [
+            {"key": c.key, "label": c.label, "abbreviation": c.abbreviation}
+            for c in K.CHARACTERISTICS
+        ],
+        "skills": [
+            {
+                "key": s.key,
+                "label": s.printed_label,
+                "characteristic": s.characteristic,
+                "isBasic": s.is_basic,
+                "isGroup": s.is_group,
+                "column": s.column,
+                "writeInLines": s.write_in_lines,
+            }
+            for s in K.SKILLS
+        ],
+        "groupSkillExamples": K.GROUP_SKILL_EXAMPLES,
+        "proficiencyColumns": K.PROFICIENCY_COLUMNS,
+        "armourLocations": [
+            {
+                "key": a.key,
+                "location": a.location,
+                "hitRoll": a.hit_roll,
+            }
+            for a in K.ARMOUR_LOCATIONS
+        ],
+        "weaponTraining": {
+            "basicAndPistol": [
+                {"key": k, "label": label}
+                for k, label in zip(
+                    K.BASIC_AND_PISTOL_TRAINING_KEYS,
+                    K.BASIC_AND_PISTOL_TRAINING_LABELS,
+                    strict=True,
+                )
+            ],
+            "melee": [
+                {"key": k, "label": label}
+                for k, label in zip(K.MELEE_TRAINING_KEYS, K.MELEE_TRAINING_LABELS, strict=True)
+            ],
+        },
+        "minorPowers": [
+            {
+                "name": p.name,
+                "threshold": p.threshold,
+                "focus": p.focus,
+                "sustain": p.sustain,
+            }
+            for p in K.MINOR_POWERS
+        ],
+        "printedCapacity": K.PRINTED_CAPACITY,
+        "printedRankBlocks": K.PRINTED_RANK_BLOCKS,
+        "page": {"widthMm": K.PAGE_WIDTH_MM, "heightMm": K.PAGE_HEIGHT_MM},
+    }
+
+
+@app.get("/api/blank")
+def blank() -> dict:
+    """An empty sheet, for the editor to start a new character from."""
+    return blank_character().to_json_dict()
+
+
+@app.get("/api/assets/armour-silhouette.png")
+def armour_silhouette() -> Response:
+    if not ARMOUR_SILHOUETTE.exists():
+        raise HTTPException(
+            404,
+            "assets/armour-silhouette.png is missing. Generate it with: "
+            "python -m scribe40k.tools.build_assets path/to/blank-template.pdf",
+        )
+    return FileResponse(ARMOUR_SILHOUETTE, media_type="image/png")
+
+
+@app.get("/api/health")
+def health() -> dict:
+    config = load_config()
+    return {
+        "status": "ok",
+        "ocr": {"provider": config.ocr.provider, "model": config.ocr.model},
+        "reasoning": {
+            "provider": config.reasoning.provider,
+            "model": config.reasoning.model,
+        },
+        "dataRoot": str(store.root),
+        "assetsBuilt": ARMOUR_SILHOUETTE.exists(),
+    }
+
+
+# --------------------------------------------------------------------------------------
+# Frontend
+# --------------------------------------------------------------------------------------
+
+
+@app.exception_handler(404)
+async def spa_fallback(request, exc):  # noqa: ANN001
+    """Serve the editor for any non-API path, so client-side routes work on reload."""
+    if request.url.path.startswith("/api/"):
+        return JSONResponse({"detail": exc.detail}, status_code=404)
+
+    index = FRONTEND_DIST / "index.html"
+    if index.exists():
+        return FileResponse(index)
+
+    return JSONResponse(
+        {
+            "detail": (
+                "The frontend has not been built. Run: cd frontend && npm install && npm run build"
+            ),
+        },
+        status_code=503,
+    )
+
+
+if FRONTEND_DIST.exists():
+    app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")
