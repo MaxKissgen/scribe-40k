@@ -1,0 +1,148 @@
+/**
+ * Print mode.
+ *
+ * This is what the PDF export renders, so it has to strip every trace of the editor while
+ * leaving the sheet itself untouched: no buttons, no flag badges, no review bar, no
+ * scrollbars, and no visible form chrome around values.
+ *
+ * Two routes reach it. `@media print` covers Ctrl+P from the editor. The `.sheet--print`
+ * class covers the `/print/<id>` route the exporter drives, where nothing should ever be
+ * interactive in the first place.
+ */
+
+@page {
+  /* The template's own size. Neither A4 nor Letter. */
+  size: 213mm 276mm;
+  margin: 0;
+}
+
+.screen-only {
+  /* Hidden in both print routes. */
+}
+
+@media print {
+  .screen-only,
+  .reviewbar,
+  .editor-nav,
+  .tray,
+  .popover,
+  .field__badge,
+  .repeat__add,
+  .repeat__remove,
+  .page__expand,
+  .advance-block__expand,
+  .movement__hint {
+    display: none !important;
+  }
+
+  body {
+    background: #fff;
+  }
+
+  .page {
+    margin: 0;
+    box-shadow: none;
+    page-break-after: always;
+    break-after: page;
+  }
+
+  .page:last-of-type {
+    page-break-after: auto;
+    break-after: auto;
+  }
+
+  /* A field is just its value on paper. */
+  .field {
+    outline: none !important;
+  }
+
+  .field__input {
+    background: transparent !important;
+    font-style: normal !important;
+  }
+
+  .field__input--number::-webkit-outer-spin-button,
+  .field__input--number::-webkit-inner-spin-button {
+    display: none;
+  }
+
+  .skill:nth-child(even) {
+    background: transparent;
+  }
+
+  .tick--editable {
+    cursor: default;
+  }
+
+  /* Rows past the printed capacity keep their content but lose the screen marker. */
+  .repeat__row--overflow {
+    border-left: none;
+    padding-left: 0;
+  }
+}
+
+/* The /print/<id> route, driven by the exporter. */
+.sheet--print .screen-only,
+.sheet--print .reviewbar,
+.sheet--print .editor-nav,
+.sheet--print .tray,
+.sheet--print .field__badge,
+.sheet--print .repeat__add,
+.sheet--print .repeat__remove,
+.sheet--print .movement__hint {
+  display: none !important;
+}
+
+.sheet--print {
+  background: #fff;
+  padding: 0;
+}
+
+.sheet--print .page {
+  margin: 0 auto;
+  box-shadow: none;
+  page-break-after: always;
+  break-after: page;
+}
+
+.sheet--print .page:last-of-type {
+  page-break-after: auto;
+  break-after: auto;
+}
+
+.sheet--print .field {
+  outline: none !important;
+}
+
+.sheet--print .field__input {
+  background: transparent !important;
+  font-style: normal !important;
+  /* Values are settled data at this point, whatever their review state was. */
+}
+
+.sheet--print .skill:nth-child(even) {
+  background: transparent;
+}
+
+.sheet--print input,
+.sheet--print textarea,
+.sheet--print select {
+  pointer-events: none;
+}
+
+/* Keep a block from being split across a page break mid-row. */
+.weapon,
+.power-box,
+.advance-block,
+.characteristic,
+.bigbox {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+/*
+ * `min-height: <page height>` is what makes a page look like paper on screen. In print it
+ * is actively harmful: a section that exactly fills the page box leaves no room for
+ * anything after it, so the trailing copyright line was being pushed onto a page of its
+ * own. The page breaks between sections are what separate the pages here, not the height.
+ */

@@ -61,6 +61,7 @@ def build_fingerprints(doc: pymupdf.Document) -> dict:
         pages.append(
             {
                 "sheetPage": index + 1,
+                "variant": "template",
                 "vector": [round(v, 4) for v in fingerprint_from_gray(gray).tolist()],
             }
         )
@@ -71,7 +72,11 @@ def build_fingerprints(doc: pymupdf.Document) -> dict:
             "Coarse grayscale fingerprints of the blank Dark Heresy template, used to "
             "identify which scanned page corresponds to which sheet page, plus the "
             "template's own printed vocabulary, used to tell a digitally-filled sheet "
-            "from an empty one. Neither is sufficient to reconstruct the sheet."
+            "from an empty one. Neither is sufficient to reconstruct the sheet. A page "
+            "may appear more than once under different 'variant' values: 'template' is "
+            "the original printed form, 'html' is this application's own rendering of "
+            "the same page, recorded by scribe40k.tools.record_layout so that an exported "
+            "sheet can be imported back."
         ),
         "grid": {"rows": FINGERPRINT_ROWS, "cols": FINGERPRINT_COLS},
         "pages": pages,

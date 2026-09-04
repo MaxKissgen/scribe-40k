@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "scribe-40k",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "uvicorn", "scribe40k.api:app", "--port", "8000"],
+      "port": 8000
+    }
+  ]
+}

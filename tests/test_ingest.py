@@ -112,11 +112,13 @@ class TestInkCoverage:
 
 
 class TestTextLayerDetection:
-    """Deciding whether a page needs OCR at all.
+    """Two separate questions, deliberately not conflated.
 
-    The trap here is that the blank template carries a full text layer of its own -- 4,395
-    characters on page 1 alone. Counting raw text length would classify an *empty* sheet as
-    digitally filled and skip OCR entirely, extracting nothing.
+    *Does the page have a text layer?* decides whether OCR is needed. *Does it carry
+    player data?* decides whether it is worth reading. Using the second to answer the
+    first sent digitally-produced but lightly-filled pages through OCR for nothing -- a
+    sheet exported by this tool and imported straight back would have been re-transcribed
+    despite carrying perfectly good text.
     """
 
     def test_template_boilerplate_does_not_count_as_content(self) -> None:
@@ -223,3 +225,42 @@ class TestAgainstTheCalibrationScan:
 
     def test_matches_are_confident(self, result) -> None:
         assert all(p.match_score > 0.6 for p in result.sheet_pages)
+
+
+class TestTextLayerIsIndependentOfContent:
+    """A page with a text layer needs no OCR, however little the player wrote on it."""
+
+    def test_a_lightly_filled_digital_page_is_not_sent_to_ocr(self, tmp_path) -> None:
+        import pymupdf
+
+        from scribe40k.pipeline.ingest import TextSource, ingest
+
+        path = tmp_path / "digital.pdf"
+        with pymupdf.open() as doc:
+            page = doc.new_page(width=604, height=782)
+            # Plenty of printed boilerplate, one written-in value.
+            page.insert_text((40, 60), "Character Name Player Name Career Rank Home World")
+            page.insert_text((40, 80), "Quirk Divination Ordo Description Characteristics")
+            page.insert_text((40, 100), "Weapon Skill Ballistic Skill Strength Toughness")
+            page.insert_text((40, 120), "Agility Intelligence Perception Willpower Fellowship")
+            page.insert_text((40, 140), "Aldleg")
+            doc.save(path)
+
+        result = ingest(path, tmp_path / "pages")
+
+        assert result.pages[0].text_source is TextSource.TEXT_LAYER
+
+    def test_a_page_with_no_text_at_all_goes_to_ocr(self, tmp_path) -> None:
+        import pymupdf
+
+        from scribe40k.pipeline.ingest import TextSource, ingest
+
+        path = tmp_path / "scan.pdf"
+        with pymupdf.open() as doc:
+            page = doc.new_page(width=604, height=782)
+            page.draw_rect(pymupdf.Rect(50, 50, 550, 700), fill=(0.2, 0.2, 0.2))
+            doc.save(path)
+
+        result = ingest(path, tmp_path / "pages")
+
+        assert result.pages[0].text_source is TextSource.OCR

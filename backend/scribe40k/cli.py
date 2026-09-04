@@ -143,6 +143,74 @@ def show(
     _print_flags(report)
 
 
+@app.command()
+def export(
+    character_id: Annotated[str, typer.Argument(help="Character id, from 'scribe list'.")],
+    output: Annotated[
+        Path | None, typer.Option("--output", "-o", help="Where to write the PDF.")
+    ] = None,
+    page_size: Annotated[
+        str, typer.Option("--page-size", help="native (213x276mm), a4, or letter.")
+    ] = "native",
+    server: Annotated[
+        str | None, typer.Option("--server", help="Reuse a running server instead of starting one.")
+    ] = None,
+) -> None:
+    """Render a character to PDF, exactly as the editor shows it."""
+    from .export.pdf import ExportError, ExportOptions, export_character
+
+    store = CharacterStore()
+    if not store.exists(character_id):
+        console.print(f"[bold red]No character '{character_id}'.[/] Try 'scribe list'.")
+        raise typer.Exit(1)
+
+    report = store.load_report(character_id)
+    if report and report.review_count:
+        # A warning, not a block: the user may well want a printout of a sheet they have
+        # not finished checking.
+        console.print(
+            f"[yellow]Note:[/] {report.review_count} field(s) still need review. "
+            f"Run 'scribe show {character_id}' to see them."
+        )
+
+    destination = output or Path(f"{character_id}.pdf")
+    console.print(f"[dim]Rendering {character_id} at {page_size} size...[/]")
+
+    try:
+        written = export_character(
+            character_id,
+            destination,
+            options=ExportOptions(page_size=page_size),
+            base_url=server,
+        )
+    except ExportError as exc:
+        console.print(f"[bold red]{exc}[/]")
+        raise typer.Exit(1) from exc
+
+    console.print(f"Wrote [bold]{written}[/] ({written.stat().st_size // 1024} KB)")
+
+
+@app.command()
+def serve(
+    port: Annotated[int, typer.Option(help="Port to listen on.")] = 8000,
+    host: Annotated[str, typer.Option(help="Address to bind.")] = "127.0.0.1",
+) -> None:
+    """Run the editor."""
+    import uvicorn
+
+    from .paths import FRONTEND_DIST
+
+    if not FRONTEND_DIST.exists():
+        console.print(
+            "[yellow]The frontend has not been built.[/] The API will run, but the editor "
+            "will not load. Build it with:\n"
+            "    cd frontend && npm install && npm run build"
+        )
+
+    console.print(f"Editor at [bold]http://{host}:{port}[/]")
+    uvicorn.run("scribe40k.api:app", host=host, port=port, log_level="info")
+
+
 def _print_flags(report) -> None:
     counts = report.severity_counts()
     total = report.review_count

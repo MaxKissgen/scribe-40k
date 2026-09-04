@@ -16,7 +16,7 @@ import io
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import Body, FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import Body, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -331,6 +331,45 @@ async def import_pdf(
     store.save_report(character_id, outcome.report)
 
     return _payload(character_id, outcome.character)
+
+
+# --------------------------------------------------------------------------------------
+# Export
+# --------------------------------------------------------------------------------------
+
+
+@app.post("/api/characters/{character_id}/export")
+def export_pdf(
+    character_id: str,
+    page_size: Annotated[str, Query()] = "native",
+    request: Request = None,  # type: ignore[assignment]
+) -> Response:
+    """Render this character's print route to PDF.
+
+    Chromium is pointed back at this same server, so the export is a photograph of the
+    editor rather than a second implementation of the layout.
+    """
+    _require(character_id)
+
+    from .export.pdf import ExportError, ExportOptions, render_url_to_pdf
+
+    base = str(request.base_url).rstrip("/") if request else "http://127.0.0.1:8000"
+    destination = store.directory(character_id) / f"{character_id}.pdf"
+
+    try:
+        render_url_to_pdf(
+            f"{base}/print/{character_id}",
+            destination,
+            ExportOptions(page_size=page_size),
+        )
+    except ExportError as exc:
+        raise HTTPException(503, str(exc)) from exc
+
+    return FileResponse(
+        destination,
+        media_type="application/pdf",
+        filename=f"{character_id}.pdf",
+    )
 
 
 # --------------------------------------------------------------------------------------

@@ -54,7 +54,9 @@ def _restrict_to_owned(data: dict, section: Section) -> tuple[dict, list[str]]:
     return kept, rejected
 
 
-def _flags_from_uncertain(entries: list, section: Section, sheet_page: int | None) -> list[Flag]:
+def _flags_from_uncertain(
+    entries: list, section: Section, sheet_page: int | None, pdf_page: int | None
+) -> list[Flag]:
     flags: list[Flag] = []
     for entry in entries:
         if not isinstance(entry, dict):
@@ -79,7 +81,12 @@ def _flags_from_uncertain(entries: list, section: Section, sheet_page: int | Non
                 confidence=confidence,
                 alternatives=alternatives,
                 evidence=Evidence(
+                    # Both are needed: sheetPage names the page for the user, pdfPage
+                    # addresses the rendered image the editor crops for the popover.
+                    # Without pdfPage the crop -- the most useful part of a flag -- is
+                    # silently absent.
                     sheetPage=sheet_page,
+                    pdfPage=pdf_page,
                     snippet=entry.get("snippet"),
                 ),
             )
@@ -124,10 +131,9 @@ def run_section(
         [images[p] for p in section.sheet_pages if p in images] if provider.supports_vision else []
     )
     primary = section.sheet_pages[0]
-    pdf_page = next(
-        (images[p].pdf_page for p in section.sheet_pages if p in images),
-        primary,
-    )
+    # The PDF page number, not the sheet page: the rendered images the editor crops are
+    # named by their position in the uploaded file, which is rarely the same thing.
+    pdf_page = next((images[p].pdf_page for p in section.sheet_pages if p in images), None)
 
     if not text.strip() and not attached:
         return SectionResult(
@@ -191,11 +197,12 @@ def run_section(
         envelope.get("uncertain") or [] if isinstance(envelope.get("uncertain"), list) else [],
         section,
         primary,
+        pdf_page,
     )
     unmapped = _unmapped_from(
         envelope.get("unmapped") or [] if isinstance(envelope.get("unmapped"), list) else [],
         section,
-        pdf_page,
+        pdf_page if pdf_page is not None else primary,
         primary,
     )
 

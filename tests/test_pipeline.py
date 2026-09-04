@@ -564,6 +564,21 @@ class TestEndToEnd:
         assert flag.alternatives == ["Imperial Psycher"]
         assert flag.evidence.snippet.startswith("Career_")
 
+    def test_a_flag_can_locate_its_own_crop(self, outcome) -> None:
+        """Without pdfPage the editor cannot show the handwriting beside the field, which
+        is the difference between a question the user can answer and one they cannot."""
+        [flag] = [f for f in outcome.report.flags if f.rule == "model.low_confidence"]
+
+        assert flag.evidence.sheetPage == 1
+        assert flag.evidence.pdfPage == 1
+
+    def test_unmapped_fragments_point_at_the_page_they_came_from(self, outcome) -> None:
+        implants = next(u for u in outcome.report.unmapped if "Elec graft" in u.text)
+
+        # Sheet page 4 is PDF page 5 in this out-of-order scan.
+        assert implants.source.sheetPage == 4
+        assert implants.source.pdfPage == 5
+
     def test_stray_annotations_reach_the_assignment_tray(self, outcome) -> None:
         texts = [u.text for u in outcome.report.unmapped]
         assert "+30 Deceive" in texts

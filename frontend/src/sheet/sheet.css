@@ -1,0 +1,1404 @@
+/**
+ * The sheet's look.
+ *
+ * This stylesheet is not decoration -- it *is* the PDF export, because export renders this
+ * same markup through a headless browser. So it is written for the paper first: the page
+ * is a fixed 213 x 276 mm box, and the screen simply shows those pages stacked.
+ *
+ * Typography note: the printed sheet uses Columbus MT, a commercial Monotype face that
+ * cannot be redistributed. EB Garamond is the closest free substitute for the small-caps
+ * headings and Tinos for the body. Drop a licensed ColumbusMT into assets/fonts/ and
+ * change --font-display to match the original exactly.
+ */
+
+:root {
+  --page-width: 213mm;
+  --page-height: 276mm;
+  --page-margin: 10mm;
+
+  --font-display: "EB Garamond", "Columbus MT", Georgia, serif;
+  --font-body: "Tinos", "Times New Roman", Times, serif;
+  --font-hand: "Tinos", "Times New Roman", serif;
+
+  --ink: #111;
+  --rule: #111;
+  --muted: #6b6b6b;
+  --box-fill: #ececec;
+  --paper: #fff;
+  --chrome: #f4f4f2;
+
+  --flag-warning: #b7791f;
+  --flag-warning-bg: #fdf6e7;
+  --flag-error: #b3261e;
+  --flag-error-bg: #fdeceb;
+  --focus: #1f6feb;
+
+  --tick-size: 11px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #e8e8e6;
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 9pt;
+  line-height: 1.35;
+}
+
+.app-loading,
+.app-error {
+  padding: 3rem;
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+}
+
+.app-error {
+  color: var(--flag-error);
+}
+
+/* -- Shell (character list) ------------------------------------------------------- */
+
+.shell {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 3rem 1.5rem;
+}
+
+.shell__header h1 {
+  font-family: var(--font-display);
+  font-variant: small-caps;
+  letter-spacing: 0.06em;
+  font-size: 2rem;
+  margin: 0;
+}
+
+.shell__subtitle {
+  margin: 0.2rem 0 2rem;
+  color: var(--muted);
+}
+
+.shell__actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.shell__note {
+  color: var(--muted);
+}
+
+.shell__error {
+  color: var(--flag-error);
+}
+
+.shell__footer {
+  margin-top: 3rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.character-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.character-list li {
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.character-list li > button:first-child {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background: var(--paper);
+  border: 1px solid #d5d5d2;
+  border-radius: 3px;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+.character-list li > button:first-child:hover {
+  border-color: var(--ink);
+}
+
+.character-list__name {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  flex: 1;
+}
+
+.character-list__career {
+  color: var(--muted);
+}
+
+.character-list__delete {
+  border: 1px solid transparent;
+  background: none;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 1.2rem;
+  padding: 0 0.5rem;
+}
+
+.character-list__delete:hover {
+  color: var(--flag-error);
+}
+
+.button {
+  display: inline-block;
+  padding: 0.55rem 1rem;
+  border: 1px solid var(--ink);
+  border-radius: 3px;
+  background: var(--paper);
+  font: inherit;
+  cursor: pointer;
+}
+
+.button--primary {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.button--busy {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.pill {
+  font-size: 0.72rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.pill--warning {
+  background: var(--flag-warning-bg);
+  color: var(--flag-warning);
+  border: 1px solid currentColor;
+}
+
+.pill--error {
+  background: var(--flag-error-bg);
+  color: var(--flag-error);
+  border: 1px solid currentColor;
+}
+
+/* -- Review bar ------------------------------------------------------------------- */
+
+.editor-nav {
+  max-width: var(--page-width);
+  margin: 0 auto;
+  padding: 0.75rem 0 0;
+}
+
+.editor-nav button {
+  background: none;
+  border: none;
+  font: inherit;
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.reviewbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.6rem 1rem;
+  margin: 0.5rem auto 1rem;
+  max-width: var(--page-width);
+  background: var(--chrome);
+  border: 1px solid #cfcfcb;
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+
+.reviewbar__status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.reviewbar__clear {
+  color: #2f6f3e;
+}
+
+.reviewbar__nav button,
+.reviewbar__tray-toggle {
+  border: 1px solid #bdbdb8;
+  background: var(--paper);
+  border-radius: 3px;
+  padding: 0.25rem 0.6rem;
+  font: inherit;
+  cursor: pointer;
+}
+
+.reviewbar__right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.save {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.save--error {
+  color: var(--flag-error);
+}
+
+/* -- Assignment tray -------------------------------------------------------------- */
+
+.tray {
+  position: fixed;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 22rem;
+  overflow-y: auto;
+  background: var(--paper);
+  border-left: 1px solid #cfcfcb;
+  padding: 1rem;
+  z-index: 50;
+  box-shadow: -4px 0 16px rgb(0 0 0 / 8%);
+}
+
+.tray__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.tray__header h2 {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  margin: 0;
+}
+
+.tray__header button {
+  border: none;
+  background: none;
+  font-size: 1.3rem;
+  cursor: pointer;
+}
+
+.tray__intro {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.tray__list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.tray__item {
+  border: 1px solid #ddd;
+  border-radius: 3px;
+  padding: 0.6rem;
+  margin-bottom: 0.6rem;
+}
+
+.tray__text {
+  margin: 0;
+  font-family: var(--font-hand);
+  font-size: 0.95rem;
+}
+
+.tray__where {
+  margin: 0.2rem 0 0.5rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.tray__crop {
+  width: 100%;
+  border: 1px solid #eee;
+  margin-bottom: 0.5rem;
+}
+
+.tray__actions {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.tray__pointer {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.75rem;
+  padding: 0.25rem;
+  border: 1px solid #ccc;
+  border-radius: 2px;
+}
+
+.tray__actions button {
+  border: 1px solid #bbb;
+  background: var(--paper);
+  border-radius: 2px;
+  cursor: pointer;
+  font-size: 0.75rem;
+  padding: 0.25rem 0.5rem;
+}
+
+/* -- Pages ------------------------------------------------------------------------ */
+
+.sheet {
+  padding-bottom: 3rem;
+}
+
+.page {
+  width: var(--page-width);
+  min-height: var(--page-height);
+  margin: 0 auto 1.5rem;
+  padding: var(--page-margin);
+  background: var(--paper);
+  box-shadow: 0 1px 6px rgb(0 0 0 / 15%);
+  position: relative;
+}
+
+.page--collapsed {
+  min-height: 0;
+  padding: 1rem;
+  text-align: center;
+}
+
+.page__expand,
+.advance-block__expand {
+  background: none;
+  border: 1px dashed #bbb;
+  border-radius: 3px;
+  padding: 0.5rem 1rem;
+  font-family: var(--font-display);
+  font-variant: small-caps;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  width: 100%;
+}
+
+.page__hint,
+.advance-block__hint {
+  font-variant: normal;
+  letter-spacing: 0;
+  color: var(--muted);
+  font-size: 0.8em;
+}
+
+.sheet__copyright {
+  text-align: center;
+  color: var(--muted);
+  font-size: 6pt;
+}
+
+.block-heading {
+  font-family: var(--font-display);
+  font-variant: small-caps;
+  letter-spacing: 0.08em;
+  font-size: 11pt;
+  font-weight: 600;
+  text-align: center;
+  margin: 0.6rem 0 0.3rem;
+}
+
+.block-heading--page {
+  font-size: 14pt;
+}
+
+.block-subheading {
+  font-family: var(--font-display);
+  font-size: 9pt;
+  margin: 0.5rem 0 0.2rem;
+}
+
+.block {
+  border: 1px solid var(--rule);
+  padding: 0.35rem 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+/* -- Fields ----------------------------------------------------------------------- */
+
+.field {
+  position: relative;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3em;
+  min-width: 0;
+}
+
+.field__label,
+.printed__label {
+  font-family: var(--font-display);
+  font-variant: small-caps;
+  letter-spacing: 0.05em;
+  font-size: 7.5pt;
+  white-space: nowrap;
+  color: var(--ink);
+}
+
+.field__input {
+  border: none;
+  border-bottom: 1px solid var(--rule);
+  background: transparent;
+  font-family: var(--font-hand);
+  font-size: 9pt;
+  padding: 0 0.15em 1px;
+  min-width: 2rem;
+  width: 100%;
+  color: var(--ink);
+}
+
+.field__input:focus {
+  outline: none;
+  background: #eef4ff;
+  border-bottom-color: var(--focus);
+}
+
+.field__input--number {
+  text-align: center;
+  width: 3rem;
+  -moz-appearance: textfield;
+}
+
+.field__input--number::-webkit-outer-spin-button,
+.field__input--number::-webkit-inner-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+textarea.field__input {
+  resize: vertical;
+  line-height: 1.5;
+}
+
+/* An unconfirmed extraction: a suggestion, not yet data. */
+.field__input--suggested {
+  font-style: italic;
+  background: var(--flag-warning-bg);
+}
+
+.field--error .field__input--suggested {
+  background: var(--flag-error-bg);
+}
+
+.field--flagged {
+  outline: 1px solid var(--flag-warning);
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+
+.field--error {
+  outline-color: var(--flag-error);
+}
+
+.field--focused {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.field__badge {
+  position: absolute;
+  right: -0.55rem;
+  top: -0.5rem;
+  width: 1rem;
+  height: 1rem;
+  line-height: 1;
+  border-radius: 50%;
+  border: none;
+  background: var(--flag-warning);
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  cursor: pointer;
+  z-index: 5;
+}
+
+.field--error .field__badge {
+  background: var(--flag-error);
+}
+
+.printed {
+  display: inline-flex;
+  gap: 0.3em;
+  align-items: baseline;
+}
+
+.printed__value {
+  font-family: var(--font-hand);
+  border-bottom: 1px solid var(--rule);
+  min-width: 2rem;
+  padding: 0 0.15em;
+}
+
+/* -- Popover ---------------------------------------------------------------------- */
+
+.popover {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  left: 0;
+  z-index: 60;
+  width: 20rem;
+  background: var(--paper);
+  border: 1px solid #bbb;
+  border-radius: 4px;
+  box-shadow: 0 4px 18px rgb(0 0 0 / 18%);
+  padding: 0.7rem;
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  text-align: left;
+}
+
+.popover__flag + .popover__flag {
+  border-top: 1px solid #eee;
+  margin-top: 0.6rem;
+  padding-top: 0.6rem;
+}
+
+.popover__message {
+  margin: 0 0 0.4rem;
+}
+
+.popover__flag--error .popover__message {
+  color: var(--flag-error);
+}
+
+.popover__meta {
+  margin: 0.2rem 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.popover__snippet {
+  background: #f6f6f4;
+  border: 1px solid #eee;
+  padding: 0.3rem;
+  font-size: 0.7rem;
+  white-space: pre-wrap;
+  max-height: 6rem;
+  overflow: auto;
+  margin: 0.3rem 0;
+}
+
+.popover__crop {
+  width: 100%;
+  border: 1px solid #ddd;
+  margin: 0.3rem 0;
+}
+
+.popover__alternatives {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  align-items: center;
+  margin: 0.4rem 0;
+}
+
+.popover__alternative,
+.popover__inline-action {
+  border: 1px solid #bbb;
+  background: var(--paper);
+  border-radius: 2px;
+  padding: 0.15rem 0.4rem;
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.popover__inline-action {
+  margin-left: 0.4rem;
+}
+
+.popover__actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+
+.popover__action {
+  flex: 1;
+  border: 1px solid #bbb;
+  background: var(--paper);
+  border-radius: 3px;
+  padding: 0.3rem;
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.popover__action--accept {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+}
+
+/* -- Bio -------------------------------------------------------------------------- */
+
+.bio {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.15rem 1rem;
+}
+
+.bio .field {
+  width: 100%;
+}
+
+.bio .field__input {
+  flex: 1;
+}
+
+.bio__wide {
+  grid-column: 1 / -1;
+  align-items: flex-start;
+}
+
+/* -- Characteristics -------------------------------------------------------------- */
+
+.characteristics__row {
+  display: grid;
+  grid-template-columns: repeat(9, 1fr);
+  gap: 2px;
+}
+
+.characteristic {
+  border: 1px solid var(--rule);
+  padding: 2px;
+  text-align: center;
+}
+
+.characteristic__name {
+  font-family: var(--font-display);
+  font-variant: small-caps;
+  font-size: 6.5pt;
+  letter-spacing: 0.03em;
+  line-height: 1.1;
+  min-height: 2.1em;
+}
+
+.characteristic__abbrev {
+  display: block;
+  font-weight: 700;
+}
+
+.characteristic__circle {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--box-fill);
+  border: 1px solid var(--rule);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 2px 0;
+}
+
+.characteristic__circle .field__input {
+  border: none;
+  text-align: center;
+  font-size: 13pt;
+  width: 2.4rem;
+  background: transparent;
+}
+
+.characteristic__bonus {
+  position: absolute;
+  right: 2px;
+  bottom: 0;
+  font-size: 7pt;
+  color: var(--muted);
+}
+
+.characteristic__advances-label {
+  font-size: 5pt;
+  display: block;
+  color: var(--muted);
+}
+
+/* -- Ticks ------------------------------------------------------------------------ */
+
+.tickrow {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+  justify-content: center;
+}
+
+.tick {
+  display: inline-block;
+  width: var(--tick-size);
+  height: var(--tick-size);
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  padding: 0;
+  flex: none;
+}
+
+.tick--editable {
+  cursor: pointer;
+}
+
+.tick--editable:hover {
+  background: #dce7ff;
+}
+
+.tick--on {
+  background: var(--ink);
+}
+
+.tick--printed {
+  cursor: default;
+}
+
+label.tick {
+  border: none;
+  width: auto;
+  height: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.3em;
+}
+
+label.tick input[type="checkbox"] {
+  width: var(--tick-size);
+  height: var(--tick-size);
+  margin: 0;
+  accent-color: var(--ink);
+}
+
+.tick__label {
+  font-size: 8pt;
+  white-space: nowrap;
+}
+
+/* -- Skills ----------------------------------------------------------------------- */
+
+.skills__columns {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+}
+
+.skills__headers {
+  display: flex;
+  justify-content: flex-end;
+  gap: 3px;
+  height: 3.2rem;
+  align-items: flex-end;
+}
+
+.skills__header {
+  width: var(--tick-size);
+  font-size: 6pt;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  white-space: nowrap;
+}
+
+.skill {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  min-height: 1.25rem;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.skill:nth-child(even) {
+  background: #fafafa;
+}
+
+.skill__name {
+  font-size: 8pt;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.skill--group {
+  display: block;
+}
+
+.skill__specialisations {
+  padding-left: 0.6rem;
+}
+
+.skill__specialisation {
+  border-bottom: none;
+  background: none !important;
+}
+
+.skill__subject {
+  flex: 1;
+}
+
+.skill__subject .field__input {
+  font-size: 8pt;
+}
+
+.skills__footnote {
+  font-size: 6.5pt;
+  color: var(--muted);
+  margin: 0.3rem 0 0;
+}
+
+/* -- Page 1 footer ---------------------------------------------------------------- */
+
+.page1__footer {
+  display: grid;
+  grid-template-columns: 1fr 1.1fr 1.2fr;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+
+.bigbox-row {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.bigbox {
+  flex: 1;
+  border: 1px solid var(--rule);
+  background: var(--box-fill);
+  padding: 0.3rem;
+  text-align: center;
+  min-height: 3.5rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.bigbox__label {
+  font-family: var(--font-display);
+  font-variant: small-caps;
+  font-size: 7pt;
+  letter-spacing: 0.05em;
+}
+
+.bigbox__value .field__input {
+  border: none;
+  font-size: 14pt;
+  text-align: center;
+  width: 100%;
+  background: transparent;
+}
+
+/* -- Armour ----------------------------------------------------------------------- */
+
+.armour {
+  position: relative;
+  min-height: 16rem;
+}
+
+.armour__silhouette {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  height: 100%;
+  opacity: 0.85;
+  /* The asset is a white-on-black stencil; invert it to ink on paper. */
+  filter: invert(1);
+}
+
+.armour__loc {
+  position: absolute;
+  border: 1px solid var(--rule);
+  background: rgb(255 255 255 / 88%);
+  padding: 2px 3px;
+  text-align: center;
+  width: 5.2rem;
+}
+
+.armour__loc-name {
+  display: block;
+  font-family: var(--font-display);
+  font-variant: small-caps;
+  font-size: 6.5pt;
+}
+
+.armour__loc-roll {
+  display: block;
+  font-size: 6pt;
+  color: var(--muted);
+}
+
+.armour__loc-fields {
+  display: flex;
+  gap: 2px;
+  align-items: baseline;
+}
+
+.armour__type {
+  flex: 1;
+  min-width: 0;
+}
+
+.armour__type .field__input,
+.armour__ap .field__input {
+  font-size: 7.5pt;
+}
+
+.armour__loc--head { top: 0; left: 50%; transform: translateX(-50%); }
+.armour__loc--body { top: 40%; left: 50%; transform: translateX(-50%); }
+.armour__loc--right-arm { top: 26%; left: 0; }
+.armour__loc--left-arm { top: 26%; right: 0; }
+.armour__loc--right-leg { bottom: 0; left: 8%; }
+.armour__loc--left-leg { bottom: 0; right: 8%; }
+
+/* -- String lists ----------------------------------------------------------------- */
+
+.stringlist {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.movement__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.2rem 0.5rem;
+}
+
+.movement__hint {
+  color: var(--muted);
+  font-size: 6.5pt;
+  margin: 0.2rem 0 0;
+}
+
+/* -- Repeating rows --------------------------------------------------------------- */
+
+.repeat__row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.repeat__row > *:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Rows past what the paper holds: they print on a continuation page. */
+.repeat__row--overflow {
+  border-left: 2px solid var(--flag-warning);
+  padding-left: 0.25rem;
+}
+
+.repeat__remove {
+  border: none;
+  background: none;
+  color: transparent;
+  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 0 0.2rem;
+  flex: none;
+}
+
+.repeat__row:hover .repeat__remove {
+  color: var(--muted);
+}
+
+.repeat__remove:hover {
+  color: var(--flag-error) !important;
+}
+
+.repeat__add {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 7.5pt;
+  cursor: pointer;
+  padding: 0.1rem 0;
+  text-align: left;
+}
+
+.repeat__add:hover {
+  color: var(--ink);
+}
+
+.repeat__note {
+  font-style: italic;
+}
+
+/* -- Weapons, gear, talents ------------------------------------------------------- */
+
+.weapons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+}
+
+.weapon {
+  border: 1px solid var(--rule);
+  padding: 0.25rem;
+  margin-bottom: 0.35rem;
+}
+
+.weapon__name {
+  width: 100%;
+}
+
+.weapon__name .field__input {
+  flex: 1;
+}
+
+.weapon__stats {
+  display: flex;
+  gap: 0.4rem;
+  border-top: 1px solid var(--rule);
+  padding-top: 2px;
+  margin-top: 2px;
+}
+
+.weapon__stats .field {
+  flex: 1;
+  min-width: 0;
+}
+
+.weapon__rules {
+  display: flex;
+  gap: 0.3rem;
+  border-top: 1px solid var(--rule);
+  padding-top: 2px;
+  margin-top: 2px;
+  width: 100%;
+}
+
+.page2__lists {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+  margin-top: 0.6rem;
+}
+
+.named-entry,
+.gear-entry,
+.advance-row {
+  display: flex;
+  gap: 0.3rem;
+  width: 100%;
+}
+
+.named-entry__name,
+.gear-entry__name,
+.advance-row__name {
+  flex: 1;
+  min-width: 0;
+}
+
+.named-entry__spec {
+  width: 40%;
+}
+
+.gear-entry__qty {
+  flex: none;
+}
+
+.training__columns {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.3rem;
+}
+
+.training__exotic {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 8pt;
+}
+
+.training__exotic-name {
+  flex: 1;
+  min-width: 3rem;
+}
+
+/* -- Advances --------------------------------------------------------------------- */
+
+.advances {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.advance-block {
+  border: 1px solid var(--rule);
+  padding: 0.3rem;
+}
+
+.advance-block--collapsed {
+  border-style: dashed;
+  border-color: #ccc;
+  padding: 0;
+}
+
+.advance-rows {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 0.4rem;
+}
+
+.advance-row__cost {
+  flex: none;
+}
+
+.experience {
+  max-width: 22rem;
+  margin: 0 auto 0.5rem;
+}
+
+/* -- Psychic ---------------------------------------------------------------------- */
+
+.psychic__header {
+  display: flex;
+  gap: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.psychic__header .field {
+  flex: 1;
+}
+
+.psychic__header .field__input {
+  flex: 1;
+}
+
+.psychic__body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+}
+
+.minor-powers {
+  border: 1px solid var(--rule);
+  padding: 0.3rem;
+}
+
+.minor-powers__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 7.5pt;
+}
+
+.minor-powers__table th {
+  font-family: var(--font-display);
+  font-variant: small-caps;
+  font-weight: 600;
+  text-align: left;
+  border-bottom: 1px solid var(--rule);
+}
+
+.minor-powers__table td {
+  padding: 0 2px;
+  border-bottom: 1px dotted #e5e5e5;
+}
+
+.minor-powers__row--known {
+  background: #f3f3f0;
+  font-weight: 600;
+}
+
+.minor-powers__table--custom .field__input {
+  font-size: 7.5pt;
+}
+
+.power-boxes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.page--5 .power-boxes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
+}
+
+.power-box {
+  position: relative;
+  border: 1px solid var(--rule);
+  padding: 0.25rem;
+}
+
+.power-box__name {
+  width: 100%;
+}
+
+.power-box__name .field__input {
+  flex: 1;
+}
+
+.power-box__row {
+  display: flex;
+  gap: 0.4rem;
+  border-top: 1px solid var(--rule);
+  padding-top: 2px;
+  margin-top: 2px;
+}
+
+.power-box__row .field {
+  flex: 1;
+  min-width: 0;
+}
+
+.power-box__description {
+  width: 100%;
+  align-items: flex-start;
+  border-top: 1px solid var(--rule);
+  padding-top: 2px;
+  margin-top: 2px;
+}
+
+.power-box__description textarea {
+  rows: 2;
+}
+
+.popover__page-link {
+  color: var(--focus);
+}
+
+/* -- Density corrections ---------------------------------------------------------- */
+
+/*
+ * Page 1 is the tightest page on the sheet: bio, nine characteristics, 48 skills in three
+ * columns, and six condition blocks all have to fit inside 213 x 276 mm. The rules below
+ * are what make it fit rather than spilling onto a second sheet, and they are load-bearing
+ * for the PDF export -- loosen them and page 1 becomes two pages.
+ */
+
+.page {
+  --page-margin: 8mm;
+}
+
+.block-heading {
+  margin: 0.35rem 0 0.15rem;
+}
+
+.skill {
+  min-height: 1.02rem;
+}
+
+.skill__name {
+  font-size: 7.5pt;
+}
+
+.characteristic__circle .field__input {
+  font-size: 12pt;
+}
+
+.characteristics__row {
+  margin-bottom: 0.2rem;
+}
+
+.skills__headers {
+  height: 2.6rem;
+}
+
+.armour {
+  min-height: 13rem;
+}
+
+.page1__footer {
+  margin-top: 0.35rem;
+}
+
+.bigbox {
+  min-height: 2.8rem;
+}
+
+/*
+ * Inside the narrow condition blocks a label and its input were laid out side by side in
+ * a box too small for both, so "Current Points" and "Degree of Madness" overlapped in the
+ * printout. Stacking the label above the input inside a block fixes it without changing
+ * the wide two-column blocks at the top of the page.
+ */
+.block .field,
+.block .printed {
+  display: flex;
+  width: 100%;
+  align-items: baseline;
+  gap: 0.3em;
+}
+
+.block .field__input,
+.block .printed__value {
+  flex: 1;
+  min-width: 0;
+}
+
+.block--insanity .field,
+.block--corruption .field,
+.block--movement .field {
+  flex-wrap: nowrap;
+}
+
+.block--insanity .field__label,
+.block--corruption .field__label {
+  flex: none;
+}
+
+.movement__grid .field {
+  gap: 0.2em;
+}
+
+.stringlist .field__input {
+  width: 100%;
+}
+
+/*
+ * A checkbox with a label is a row, not an inline square. The training grid stacks these
+ * vertically in three columns, mirroring the printed block at the foot of page 2.
+ */
+.tickline {
+  display: flex;
+  align-items: center;
+  gap: 0.3em;
+  min-height: 1.05rem;
+}
+
+.training__column {
+  display: flex;
+  flex-direction: column;
+}
+
+.training__column .field {
+  width: 100%;
+}
+
+/*
+ * Weapon boxes print even when empty, because the paper prints them empty too and a sheet
+ * with room to write on is more useful than one that has silently dropped its blank rows.
+ */
+.sheet--print .weapon,
+.sheet--print .power-box {
+  min-height: 3.2rem;
+}
+
+/* The copyright line at the foot of every page, as the paper prints it. */
+.page__footer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 3mm;
+  text-align: center;
+  color: var(--muted);
+  font-size: 6pt;
+  margin: 0;
+}

@@ -1,0 +1,174 @@
+"""PDF export, and the round trip back through the extractor.
+
+The export tests need Chromium and a built frontend, so they skip when either is absent --
+but when they do run they are the strongest check in the suite, because they exercise the
+real components, the real stylesheet, and the real classifier together.
+"""
+
+from __future__ import annotations
+
+import shutil
+
+import numpy as np
+import pytest
+
+from scribe40k.blank import blank_character
+from scribe40k.export.pdf import PAGE_SIZES, ExportError, ExportOptions, render_url_to_pdf
+from scribe40k.paths import FRONTEND_DIST, PAGE_FINGERPRINTS
+from scribe40k.pipeline.ingest import assign_sheet_pages, load_template_fingerprints
+from scribe40k.store import CharacterStore
+
+pymupdf = pytest.importorskip("pymupdf")
+
+
+def _playwright_available() -> bool:
+    try:
+        import playwright  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+needs_export = pytest.mark.skipif(
+    not (_playwright_available() and FRONTEND_DIST.exists()),
+    reason="PDF export needs Playwright and a built frontend",
+)
+
+
+class TestOptions:
+    def test_the_native_size_is_the_templates_own(self) -> None:
+        assert PAGE_SIZES["native"] == ("213.0mm", "276.0mm")
+
+    def test_a4_and_letter_are_offered_too(self) -> None:
+        assert set(PAGE_SIZES) == {"native", "a4", "letter"}
+
+    def test_an_unknown_size_is_rejected_with_the_alternatives(self, tmp_path) -> None:
+        with pytest.raises(ExportError, match="unknown page size"):
+            render_url_to_pdf(
+                "http://127.0.0.1:1/print/x",
+                tmp_path / "out.pdf",
+                ExportOptions(page_size="a3"),
+            )
+
+
+class TestLayoutVariants:
+    """A sheet page can be recognised in more than one layout.
+
+    The original template and this application's rendering of the same page are lookalikes
+    rather than pixel twins, and correlate at only about 0.38. Without support for several
+    variants per page, a sheet exported by this tool could not be imported back into it.
+    """
+
+    def _unit(self, values: list[float]) -> np.ndarray:
+        vector = np.asarray(values, dtype=np.float32)
+        return vector / np.linalg.norm(vector)
+
+    def test_matching_any_variant_is_enough(self) -> None:
+        templates = {1: [self._unit([1, 0, 0]), self._unit([0, 0, 1])]}
+        candidates = {5: self._unit([0, 0.02, 1])}
+
+        sheet_page, score, _ = assign_sheet_pages(candidates, templates)[5]
+
+        assert sheet_page == 1
+        assert score > 0.9
+
+    def test_a_single_vector_still_works(self) -> None:
+        """Backwards compatible with a fingerprint file that predates variants."""
+        templates = {1: self._unit([1, 0])}
+        candidates = {2: self._unit([1, 0.05])}
+
+        assert assign_sheet_pages(candidates, templates)[2][0] == 1
+
+    @pytest.mark.skipif(not PAGE_FINGERPRINTS.exists(), reason="assets not built")
+    def test_the_committed_assets_carry_both_layouts(self) -> None:
+        variants = load_template_fingerprints()
+
+        assert set(variants) == {1, 2, 3, 4, 5}
+        assert all(len(vectors) >= 2 for vectors in variants.values()), (
+            "run scribe40k.tools.record_layout so exported sheets can be re-imported"
+        )
+
+
+@needs_export
+class TestRoundTrip:
+    """Fill a sheet, export it, and read it back in."""
+
+    @pytest.fixture(scope="class")
+    def exported(self, tmp_path_factory):
+        from scribe40k import api
+        from scribe40k.export.pdf import export_character
+
+        root = tmp_path_factory.mktemp("roundtrip")
+        store = CharacterStore(root / "characters")
+
+        document = blank_character().to_json_dict()
+        document["bio"]["characterName"] = "Round Trip"
+        document["bio"]["career"] = "Assassin"
+        document["characteristics"]["agility"]["total"] = 45
+        document["skills"]["dodge"]["proficiency"] = {"level": "+10"}
+        document["gear"] = [{"name": "autogun", "quantity": None, "notes": None}]
+        store.save("round-trip", document)
+
+        original = api.store
+        api.store = store
+        try:
+            destination = root / "round-trip.pdf"
+            export_character("round-trip", destination)
+        finally:
+            api.store = original
+
+        return destination
+
+    def test_the_pdf_is_the_templates_page_size(self, exported) -> None:
+        with pymupdf.open(exported) as doc:
+            page = doc[0]
+            width_mm = page.rect.width / 72 * 25.4
+            height_mm = page.rect.height / 72 * 25.4
+
+        assert width_mm == pytest.approx(213, abs=0.5)
+        assert height_mm == pytest.approx(276, abs=0.5)
+
+    def test_the_values_are_selectable_text_not_a_picture(self, exported) -> None:
+        with pymupdf.open(exported) as doc:
+            text = "\n".join(page.get_text("text") for page in doc)
+
+        assert "Round Trip" in text
+        assert "Assassin" in text
+        assert "autogun" in text
+
+    def test_editor_chrome_does_not_reach_the_paper(self, exported) -> None:
+        with pymupdf.open(exported) as doc:
+            text = "\n".join(page.get_text("text") for page in doc).lower()
+
+        for chrome in ("need review", "add gear line", "unassigned", "export pdf"):
+            assert chrome not in text, f"{chrome!r} leaked into the printed sheet"
+
+    def test_an_empty_psychic_section_costs_no_pages(self, exported) -> None:
+        with pymupdf.open(exported) as doc:
+            assert doc.page_count == 3
+
+    @pytest.mark.skipif(not PAGE_FINGERPRINTS.exists(), reason="assets not built")
+    def test_the_export_can_be_read_back_in(self, exported, tmp_path) -> None:
+        from scribe40k.pipeline.ingest import ingest
+
+        result = ingest(exported, tmp_path / "pages")
+        found = {page.sheet_page for page in result.sheet_pages}
+
+        assert found == {1, 2, 3}, f"classified as {result.summary()}"
+
+    @pytest.mark.skipif(not PAGE_FINGERPRINTS.exists(), reason="assets not built")
+    def test_the_export_needs_no_ocr(self, exported, tmp_path) -> None:
+        """It carries a real text layer, so re-importing it should cost nothing."""
+        from scribe40k.pipeline.ingest import ingest
+
+        result = ingest(exported, tmp_path / "pages")
+
+        assert all(page.text_source == "text_layer" for page in result.sheet_pages)
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+class TestFrontendBuild:
+    def test_the_built_frontend_is_where_the_server_expects_it(self) -> None:
+        if not FRONTEND_DIST.exists():
+            pytest.skip("frontend not built")
+        assert (FRONTEND_DIST / "index.html").exists()

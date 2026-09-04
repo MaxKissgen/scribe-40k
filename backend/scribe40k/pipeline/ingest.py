@@ -39,9 +39,15 @@ BLANK_INK_THRESHOLD = 0.01
 #: A fingerprint must correlate at least this well to claim a sheet page.
 MATCH_THRESHOLD = 0.55
 
-#: Characters of extractable text above which a page is treated as digitally filled.
-#: The blank template's own boilerplate is subtracted first, so this counts *added* text.
-TEXT_LAYER_THRESHOLD = 40
+#: Characters of extractable text above which a page is taken to have a real text layer,
+#: making OCR unnecessary. The blank template alone carries 4,395 characters on page 1, so
+#: this separates "produced digitally" from "a scan with a few stray artefacts".
+TEXT_LAYER_THRESHOLD = 200
+
+#: Characters of *added* text -- beyond the template's own printed labels -- below which a
+#: page is reported as carrying no player data. This is a note for the user, not an OCR
+#: decision: a digitally-produced sheet that is simply empty still needs no transcribing.
+ADDED_TEXT_THRESHOLD = 40
 
 
 class PageKind(StrEnum):
@@ -145,12 +151,21 @@ def _load_template_profile() -> dict:
     return json.loads(PAGE_FINGERPRINTS.read_text(encoding="utf-8"))
 
 
-def load_template_fingerprints() -> dict[int, np.ndarray]:
-    """Load the fingerprints written by ``scribe40k.tools.build_assets``."""
+def load_template_fingerprints() -> dict[int, list[np.ndarray]]:
+    """Load the fingerprints written by ``scribe40k.tools.build_assets``.
+
+    A sheet page may have several fingerprints -- one per *layout variant*. The original
+    Games Workshop template is one variant; this application's own HTML rendering of the
+    same page is another. They are lookalikes, not pixel twins (different fonts, slightly
+    different spacing), and correlate at only about 0.38 with each other, so without this
+    a sheet exported by this tool could not be imported back into it.
+    """
     data = _load_template_profile()
-    return {
-        entry["sheetPage"]: np.asarray(entry["vector"], dtype=np.float32) for entry in data["pages"]
-    }
+    variants: dict[int, list[np.ndarray]] = {}
+    for entry in data["pages"]:
+        vector = np.asarray(entry["vector"], dtype=np.float32)
+        variants.setdefault(entry["sheetPage"], []).append(vector)
+    return variants
 
 
 def load_boilerplate_tokens() -> frozenset[str]:
@@ -185,7 +200,7 @@ def added_text_length(page_text: str, template_tokens: frozenset[str]) -> int:
 
 def assign_sheet_pages(
     candidates: dict[int, np.ndarray],
-    templates: dict[int, np.ndarray],
+    templates: dict[int, list[np.ndarray] | np.ndarray],
 ) -> dict[int, tuple[int | None, float, str]]:
     """Match inked pages to template pages, one-to-one, best correlation first.
 
@@ -200,11 +215,17 @@ def assign_sheet_pages(
 
     ``candidates`` maps PDF page number to fingerprint, and must already exclude blanks.
     """
+
+    def best_against(vector: np.ndarray, reference) -> float:
+        """A page matches a sheet page if it matches *any* of its layout variants."""
+        variants = reference if isinstance(reference, list) else [reference]
+        return max((correlation(vector, variant) for variant in variants), default=-1.0)
+
     pairs = sorted(
         (
-            (correlation(vector, tpl), pdf_page, sheet_page)
+            (best_against(vector, reference), pdf_page, sheet_page)
             for pdf_page, vector in candidates.items()
-            for sheet_page, tpl in templates.items()
+            for sheet_page, reference in templates.items()
         ),
         reverse=True,
     )
@@ -277,8 +298,23 @@ def ingest(
             blank = ink < BLANK_INK_THRESHOLD
 
             embedded = page.get_text("text") or ""
+            # Two independent questions, deliberately not conflated:
+            #   * Does this page have a text layer? -> whether OCR is needed at all.
+            #   * Does it carry any player data?    -> whether it is worth reading.
+            # Using the second to answer the first sent digitally-produced but lightly
+            # filled pages through OCR for no reason.
+            has_text_layer = len(embedded.strip()) >= TEXT_LAYER_THRESHOLD
             added = added_text_length(embedded, template_tokens)
-            source = TextSource.TEXT_LAYER if added >= TEXT_LAYER_THRESHOLD else TextSource.OCR
+            source = TextSource.TEXT_LAYER if has_text_layer else TextSource.OCR
+
+            note = ""
+            if blank:
+                note = "No significant ink; treated as a blank page."
+            elif has_text_layer and added < ADDED_TEXT_THRESHOLD:
+                note = (
+                    "This page has a text layer but nothing beyond the form's printed "
+                    "labels, so it appears to be an unfilled sheet."
+                )
 
             result.pages.append(
                 IngestedPage(
@@ -289,7 +325,7 @@ def ingest(
                     match_score=0.0,
                     ink=ink,
                     embedded_text=embedded,
-                    note="No significant ink; treated as a blank page." if blank else "",
+                    note=note,
                 )
             )
             if not blank:
@@ -304,7 +340,8 @@ def ingest(
             sheet_page, score, note = match
             ingested.sheet_page = sheet_page
             ingested.match_score = score
-            ingested.note = note
+            # Keep whatever pass 1 already had to say, and add the classifier's note.
+            ingested.note = " ".join(part for part in (ingested.note, note) if part)
             ingested.kind = PageKind.SHEET if sheet_page else PageKind.UNRECOGNISED
 
         # Pass 3: render what is worth looking at. Blank pages are skipped -- nothing
