@@ -9,9 +9,10 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from . import LOADED_ENV_KEYS
 from .llm.base import ProviderError
 from .llm.config import apply_overrides, load_config
-from .llm.registry import build_ocr_provider, build_reasoning_provider
+from .llm.registry import OFFLINE_PROVIDERS, build_ocr_provider, build_reasoning_provider
 from .pipeline.run import extract as run_extract
 from .store import CharacterStore
 
@@ -23,6 +24,31 @@ app = typer.Typer(
 console = Console()
 
 SEVERITY_STYLE = {"error": "bold red", "warning": "yellow", "info": "dim"}
+
+
+def _report_credentials(config) -> bool:
+    """Say up front whether each stage can authenticate. Returns True if all can.
+
+    Worth doing loudly: a key sitting unread in a file looks exactly like a key that is
+    wrong, and neither says anything until an import fails several steps later.
+    """
+    ok = True
+    for label, stage in (("OCR", config.ocr), ("reasoning", config.reasoning)):
+        if stage.provider in OFFLINE_PROVIDERS:
+            continue
+        if stage.api_key():
+            continue
+        ok = False
+        console.print(
+            f"[bold red]No API key for the {label} provider '{stage.provider}'.[/] "
+            f"Set [bold]{stage.env_var}[/] in your environment or in .env at the "
+            f"repository root."
+        )
+
+    if not ok and not LOADED_ENV_KEYS:
+        console.print("[dim]No .env file was loaded. Copy .env.example to .env and fill it in.[/]")
+
+    return ok
 
 
 @app.command()
@@ -52,6 +78,9 @@ def extract(
         cache=False if no_cache else None,
     )
 
+    if not _report_credentials(config):
+        raise typer.Exit(1)
+
     try:
         ocr = build_ocr_provider(config.ocr, cache=config.cache)
         reasoning = build_reasoning_provider(config.reasoning, cache=config.cache)
@@ -63,6 +92,11 @@ def extract(
         f"[dim]OCR:[/] {ocr.name}/{ocr.model}   "
         f"[dim]reasoning:[/] {reasoning.name}/{reasoning.model}"
     )
+    if not getattr(reasoning, "supports_vision", False):
+        console.print(
+            "[yellow]Note:[/] this reasoning model is text-only, so ticked boxes "
+            "(skills, weapon training) will be under-reported."
+        )
 
     store = CharacterStore()
     character_id = store.new_id(name or pdf.stem)
@@ -206,6 +240,15 @@ def serve(
             "will not load. Build it with:\n"
             "    cd frontend && npm install && npm run build"
         )
+
+    config = load_config()
+    console.print(
+        f"[dim]OCR:[/] {config.ocr.provider}/{config.ocr.model}   "
+        f"[dim]reasoning:[/] {config.reasoning.provider}/{config.reasoning.model}"
+    )
+    if LOADED_ENV_KEYS:
+        console.print(f"[dim]Loaded from .env: {', '.join(LOADED_ENV_KEYS)}[/]")
+    _report_credentials(config)
 
     console.print(f"Editor at [bold]http://{host}:{port}[/]")
     uvicorn.run("scribe40k.api:app", host=host, port=port, log_level="info")

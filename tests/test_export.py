@@ -172,3 +172,55 @@ class TestFrontendBuild:
         if not FRONTEND_DIST.exists():
             pytest.skip("frontend not built")
         assert (FRONTEND_DIST / "index.html").exists()
+
+
+class TestRebuildingAssetsPreservesLayouts:
+    """`build_assets` is a documented setup step, and it used to clobber the recordings.
+
+    Losing the `html:*` variants silently breaks re-importing an exported sheet, with
+    nothing in the output to say why -- exactly the sort of failure that looks like a bug
+    in the classifier rather than a missing asset.
+    """
+
+    def test_recorded_layouts_survive_a_rebuild(self, tmp_path, monkeypatch) -> None:
+        import json
+
+        from scribe40k.tools import build_assets
+
+        assets = tmp_path / "page-fingerprints.json"
+        assets.write_text(
+            json.dumps(
+                {
+                    "pages": [
+                        {"sheetPage": 1, "variant": "template", "vector": [0.0]},
+                        {"sheetPage": 1, "variant": "html:sparse", "vector": [1.0]},
+                        {"sheetPage": 2, "variant": "html:full", "vector": [2.0]},
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(build_assets, "PAGE_FINGERPRINTS", assets)
+
+        carried = build_assets._preserve_recorded_layouts()
+
+        assert {page["variant"] for page in carried} == {"html:sparse", "html:full"}
+        assert all(page["variant"] != "template" for page in carried), (
+            "the template variant is rebuilt from the PDF and must not be duplicated"
+        )
+
+    def test_a_first_run_with_no_assets_file_is_fine(self, tmp_path, monkeypatch) -> None:
+        from scribe40k.tools import build_assets
+
+        monkeypatch.setattr(build_assets, "PAGE_FINGERPRINTS", tmp_path / "absent.json")
+
+        assert build_assets._preserve_recorded_layouts() == []
+
+    def test_a_corrupt_assets_file_does_not_stop_the_rebuild(self, tmp_path, monkeypatch) -> None:
+        from scribe40k.tools import build_assets
+
+        broken = tmp_path / "page-fingerprints.json"
+        broken.write_text("{not json", encoding="utf-8")
+        monkeypatch.setattr(build_assets, "PAGE_FINGERPRINTS", broken)
+
+        assert build_assets._preserve_recorded_layouts() == []

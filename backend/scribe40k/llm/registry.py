@@ -28,6 +28,9 @@ OPENAI_COMPATIBLE: dict[str, str | None] = {
     "azure": None,
 }
 
+#: Providers that make no network call, and therefore need no credential.
+OFFLINE_PROVIDERS = frozenset({"passthrough", "fixture"})
+
 OCR_PROVIDERS = ("mistral", "anthropic", "passthrough", "fixture", *OPENAI_COMPATIBLE)
 REASONING_PROVIDERS = ("mistral", "anthropic", "fixture", *OPENAI_COMPATIBLE)
 

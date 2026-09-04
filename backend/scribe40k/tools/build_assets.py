@@ -102,11 +102,42 @@ def main(argv: list[str] | None = None) -> int:
         width, height = extract_silhouette(doc, ARMOUR_SILHOUETTE)
         fingerprints = build_fingerprints(doc)
 
+    # This tool owns the "template" variant only. Layouts recorded from the application's
+    # own export by scribe40k.tools.record_layout are carried across, because rebuilding
+    # the assets is a documented setup step and silently dropping them would break
+    # re-importing an exported sheet with nothing to show why.
+    carried = _preserve_recorded_layouts()
+    fingerprints["pages"].extend(carried)
+    fingerprints["pages"].sort(key=lambda page: (page["sheetPage"], page.get("variant", "")))
+
     PAGE_FINGERPRINTS.write_text(json.dumps(fingerprints, indent=2) + "\n", encoding="utf-8")
 
     print(f"armour silhouette  -> {ARMOUR_SILHOUETTE}  ({width}x{height})")
-    print(f"page fingerprints  -> {PAGE_FINGERPRINTS}  ({len(fingerprints['pages'])} pages)")
+    print(f"page fingerprints  -> {PAGE_FINGERPRINTS}  ({len(fingerprints['pages'])} entries)")
+    if carried:
+        print(f"kept {len(carried)} previously recorded layout fingerprint(s)")
+    else:
+        print(
+            "no recorded application layouts found -- run "
+            "'python -m scribe40k.tools.record_layout' so exported sheets can be "
+            "imported back"
+        )
     return 0
+
+
+def _preserve_recorded_layouts() -> list[dict]:
+    """Non-template fingerprints from an existing assets file, if there is one."""
+    if not PAGE_FINGERPRINTS.exists():
+        return []
+    try:
+        existing = json.loads(PAGE_FINGERPRINTS.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    return [
+        page
+        for page in existing.get("pages", [])
+        if page.get("variant") and page["variant"] != "template"
+    ]
 
 
 if __name__ == "__main__":

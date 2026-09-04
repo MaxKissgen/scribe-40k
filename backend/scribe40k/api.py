@@ -22,12 +22,12 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from . import LOADED_ENV_KEYS, pointer
 from . import constants as K
-from . import pointer
 from .blank import blank_character
 from .llm.base import ProviderError
 from .llm.config import load_config
-from .llm.registry import build_ocr_provider, build_reasoning_provider
+from .llm.registry import OFFLINE_PROVIDERS, build_ocr_provider, build_reasoning_provider
 from .paths import ARMOUR_SILHOUETTE, FRONTEND_DIST
 from .pipeline.report import ExtractionReport
 from .pipeline.run import extract as run_extract
@@ -459,14 +459,34 @@ def armour_silhouette() -> Response:
 
 @app.get("/api/health")
 def health() -> dict:
+    """Configuration and readiness.
+
+    Reports whether each stage's credential is actually present, because "the key is in
+    my .env but nothing happens" is otherwise invisible until an import fails. Only the
+    variable name and a boolean are returned -- never a key.
+    """
     config = load_config()
+
+    def stage(name: str, cfg) -> dict:
+        needs_key = cfg.provider not in OFFLINE_PROVIDERS
+        return {
+            "provider": cfg.provider,
+            "model": cfg.model,
+            "envVar": cfg.env_var if needs_key else None,
+            "credentialFound": bool(cfg.api_key()) if needs_key else True,
+            "stage": name,
+        }
+
+    ocr = stage("ocr", config.ocr)
+    reasoning = stage("reasoning", config.reasoning)
+    ready = ocr["credentialFound"] and reasoning["credentialFound"]
+
     return {
-        "status": "ok",
-        "ocr": {"provider": config.ocr.provider, "model": config.ocr.model},
-        "reasoning": {
-            "provider": config.reasoning.provider,
-            "model": config.reasoning.model,
-        },
+        "status": "ok" if ready else "missing_credentials",
+        "ocr": ocr,
+        "reasoning": reasoning,
+        "envFileLoaded": bool(LOADED_ENV_KEYS),
+        "envFileKeys": LOADED_ENV_KEYS,
         "dataRoot": str(store.root),
         "assetsBuilt": ARMOUR_SILHOUETTE.exists(),
     }

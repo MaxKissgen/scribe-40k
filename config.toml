@@ -19,8 +19,8 @@ model    = "mistral-ocr-latest"
 # Prefer a vision-capable model: the ticked boxes in the skills grid and the weapon
 # training block are most of the data on this sheet, and OCR renders them all as
 # identical glyphs. A text-only model will under-report them.
-provider = "anthropic"
-model    = "claude-opus-5"
+provider = "mistral"
+model    = "mistral-medium-latest"
 
 # Point at any OpenAI-compatible endpoint instead:
 #   provider = "openrouter"

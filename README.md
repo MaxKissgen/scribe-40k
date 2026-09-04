@@ -25,25 +25,43 @@ python -m playwright install chromium
 cd frontend && npm install && npm run build && cd ..
 ```
 
-The application needs two derived assets that are generated from the blank template PDF.
-The template is © Games Workshop Ltd and is **not** committed, so supply your own copy:
+The application needs two derived assets generated from the blank template PDF. The
+template is © Games Workshop Ltd and is **not** committed, so supply your own copy:
 
 ```bash
 python -m scribe40k.tools.build_assets path/to/dark-heresy-blank-template.pdf
 ```
 
-Then run it:
+This preserves any layout fingerprints previously recorded by `record_layout`, so it is
+safe to re-run.
+
+### Credentials
+
+Copy `.env.example` to `.env` and fill in the key for whichever provider you use:
+
+```bash
+cp .env.example .env
+```
+
+`.env` is read at startup from the repository root. A variable already set in your shell
+wins over the file, so `MISTRAL_API_KEY=... scribe extract ...` still overrides it. Keys
+are never read from `config.toml`, which is why that file is safe to commit.
+
+### Run it
 
 ```bash
 scribe serve
 ```
 
-and open <http://127.0.0.1:8000>.
+and open <http://127.0.0.1:8000>. Startup prints the configured models and which keys were
+loaded, and says plainly if one is missing. To check the same thing at any time:
 
-### Credentials
+```bash
+curl -s http://127.0.0.1:8000/api/health
+```
 
-Copy `.env.example` to `.env` and fill in the key for whichever provider you use. Keys are
-read from the environment only — never from `config.toml`, which is safe to commit.
+`status` is `"ok"` or `"missing_credentials"`, and each stage reports the environment
+variable it wants and whether it was found. No key is ever included in the response.
 
 ---
 
@@ -168,7 +186,7 @@ continuation page when printed.
 ## Development
 
 ```bash
-python -m pytest              # 215 tests
+python -m pytest              # 232 tests
 python -m ruff check backend tests
 python -m ruff format backend tests
 cd frontend && npm run typecheck
