@@ -1402,3 +1402,34 @@ label.tick input[type="checkbox"] {
   font-size: 6pt;
   margin: 0;
 }
+
+/* The proficiency ticks are a FieldShell, so it must lay out as the tick row it replaces. */
+.field.tickrow--skill {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+  flex: none;
+}
+
+/* Flags about the whole document rather than any one field. */
+.reviewbar__document-flags {
+  list-style: none;
+  max-width: var(--page-width);
+  margin: -0.6rem auto 1rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.reviewbar__document-flags li {
+  border-radius: 3px;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.8rem;
+}
+
+.pill--info {
+  background: #eef1f5;
+  color: var(--muted);
+  border: 1px solid #d8dde3;
+}

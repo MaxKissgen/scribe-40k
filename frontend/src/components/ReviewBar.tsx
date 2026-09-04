@@ -21,13 +21,19 @@ export function ReviewBar({ onExport }: { onExport: () => void }) {
   const warnings = reviewCount - errors;
   const trayCount = (report?.unmapped ?? []).filter((item) => item.status === "unresolved").length;
 
+  // Some flags are about the document rather than a field -- a sheet page missing from the
+  // scan, a page that could not be transcribed. There is nothing to scroll to, so they get
+  // their own line instead of being cycled through as if they were fields.
+  const documentFlags = openFlags.filter((flag) => !flag.pointer);
+  const fieldFlags = openFlags.filter((flag) => flag.pointer);
+
   const step = (delta: number) => {
-    if (openFlags.length === 0) return;
-    const current = openFlags.findIndex((flag) => flag.pointer === focusedPointer);
-    const next = (current + delta + openFlags.length) % openFlags.length;
+    if (fieldFlags.length === 0) return;
+    const current = fieldFlags.findIndex((flag) => flag.pointer === focusedPointer);
+    const next = (current + delta + fieldFlags.length) % fieldFlags.length;
     // Clear first, so jumping to the same pointer twice still re-triggers the scroll.
     focusPointer(null);
-    window.setTimeout(() => focusPointer(openFlags[next].pointer), 0);
+    window.setTimeout(() => focusPointer(fieldFlags[next].pointer), 0);
   };
 
   return (
@@ -45,7 +51,7 @@ export function ReviewBar({ onExport }: { onExport: () => void }) {
           )}
         </div>
 
-        {reviewCount > 0 && (
+        {fieldFlags.length > 0 && (
           <div className="reviewbar__nav">
             <button type="button" onClick={() => step(-1)} aria-label="Previous flagged field">
               ‹
@@ -73,6 +79,16 @@ export function ReviewBar({ onExport }: { onExport: () => void }) {
           </button>
         </div>
       </div>
+
+      {documentFlags.length > 0 && (
+        <ul className="reviewbar__document-flags">
+          {documentFlags.map((flag) => (
+            <li key={flag.rule + flag.message} className={`pill pill--${flag.severity}`}>
+              {flag.message}
+            </li>
+          ))}
+        </ul>
+      )}
 
       {trayOpen && <AssignmentTray onClose={() => setTrayOpen(false)} />}
     </>

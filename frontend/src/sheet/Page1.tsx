@@ -6,7 +6,7 @@
  * printout too.
  */
 
-import { NumberField, TextField } from "../components/Field";
+import { FieldShell, NumberField, TextField } from "../components/Field";
 import { PageFooter } from "./PageFooter";
 import { padded, Repeat } from "../components/Repeat";
 import { ptr } from "../pointer";
@@ -214,38 +214,47 @@ function ProficiencyTicks({ pointer, isBasic }: { pointer: string; isBasic: bool
   const level = get<ProficiencyLevel>(pointer) ?? (isBasic ? "Basic" : "Untrained");
   const reached = ADVANCE_LEVELS.indexOf(level);
 
+  // Wrapped in a FieldShell like every other control, so that a flag on a skill can be
+  // seen and jumped to. Ticked boxes are most of what a model gets wrong on this sheet,
+  // so leaving them outside the review machinery would hide the commonest flag of all.
   return (
-    <span className="tickrow tickrow--skill">
-      {/* Printed information: filled black for a Basic Skill, and never clickable. */}
-      <span className={`tick tick--printed ${isBasic ? "tick--on" : ""}`} aria-hidden="true" />
-      {ADVANCE_LEVELS.map((candidate, index) => {
-        const on = reached >= index;
-        if (printMode) return <span key={candidate} className={`tick ${on ? "tick--on" : ""}`} />;
-        return (
-          <button
-            key={candidate}
-            type="button"
-            className={`tick tick--editable ${on ? "tick--on" : ""}`}
-            aria-label={candidate}
-            aria-pressed={on}
-            onClick={() =>
-              set(
-                pointer,
-                // Clicking the highest ticked box steps back down, so a misclick is
-                // undone by clicking the same box again.
-                level === candidate
-                  ? index === 0
-                    ? isBasic
-                      ? "Basic"
-                      : "Untrained"
-                    : ADVANCE_LEVELS[index - 1]
-                  : candidate,
-              )
+    <FieldShell pointer={pointer} className="tickrow tickrow--skill">
+      {() => (
+        <>
+          {/* Printed information: filled black for a Basic Skill, and never clickable. */}
+          <span className={`tick tick--printed ${isBasic ? "tick--on" : ""}`} aria-hidden="true" />
+          {ADVANCE_LEVELS.map((candidate, index) => {
+            const on = reached >= index;
+            if (printMode) {
+              return <span key={candidate} className={`tick ${on ? "tick--on" : ""}`} />;
             }
-          />
-        );
-      })}
-    </span>
+            return (
+              <button
+                key={candidate}
+                type="button"
+                className={`tick tick--editable ${on ? "tick--on" : ""}`}
+                aria-label={candidate}
+                aria-pressed={on}
+                onClick={() =>
+                  set(
+                    pointer,
+                    // Clicking the highest ticked box steps back down, so a misclick is
+                    // undone by clicking the same box again.
+                    level === candidate
+                      ? index === 0
+                        ? isBasic
+                          ? "Basic"
+                          : "Untrained"
+                        : ADVANCE_LEVELS[index - 1]
+                      : candidate,
+                  )
+                }
+              />
+            );
+          })}
+        </>
+      )}
+    </FieldShell>
   );
 }
 
