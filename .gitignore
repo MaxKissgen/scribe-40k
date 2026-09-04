@@ -1,0 +1,33 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# --- Node / frontend ---
+node_modules/
+frontend/dist/
+*.local
+
+# --- Secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Runtime data ---
+data/
+.cache/
+
+# --- Copyrighted source material -------------------------------------------
+# The Dark Heresy character sheet is (c) Games Workshop Ltd 2010, licensed
+# "permission granted to photocopy for personal use". Keep the PDFs and any
+# scans of filled sheets out of version control. Derived, non-reproducible
+# artefacts (page fingerprints, the armour stencil) live in assets/ and are
+# regenerated with `python -m scribe40k.tools.build_assets`.
+samples/*.pdf
+samples/*.png
+samples/*.jpg

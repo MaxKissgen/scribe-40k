@@ -1,0 +1,646 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.org/schemas/dark-heresy-character-sheet.schema.json",
+  "title": "Dark Heresy (1st Edition) Character Sheet",
+  "description": "Machine-readable representation of the official 5-page Dark Heresy character sheet (© Games Workshop Ltd 2010). Every leaf value is nullable so that a blank field on a scanned sheet maps to null rather than being omitted. Field descriptions quote the printed sheet label to make OCR mapping unambiguous.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "bio",
+    "characteristics",
+    "skills",
+    "wounds",
+    "fatePoints",
+    "armour",
+    "insanity",
+    "corruption",
+    "movement",
+    "weapons",
+    "talentsAndTraits",
+    "gear",
+    "weaponTraining",
+    "advances",
+    "psychic"
+  ],
+
+  "properties": {
+
+    "bio": {
+      "title": "Biography",
+      "description": "Everything printed above the CHARACTERISTICS block on page 1.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["characterName", "playerName", "career", "rank", "homeWorld", "quirk", "divination", "ordoOrFaction", "description"],
+      "properties": {
+        "characterName": { "type": ["string", "null"], "description": "Sheet label: 'Character Name'." },
+        "playerName": { "type": ["string", "null"], "description": "Sheet label: 'Player Name'." },
+        "career": { "type": ["string", "null"], "description": "Sheet label: 'Career'." },
+        "rank": { "type": ["string", "null"], "description": "Sheet label: 'Rank'. Free text because players write both the number and the rank title." },
+        "homeWorld": { "type": ["string", "null"], "description": "Sheet label: 'Home World'." },
+        "quirk": { "type": ["string", "null"], "description": "Sheet label: 'Quirk'." },
+        "divination": { "type": ["string", "null"], "description": "Sheet label: 'Divination'." },
+        "ordoOrFaction": { "type": ["string", "null"], "description": "Sheet label: 'Ordo (and/or Faction)'." },
+        "description": { "type": ["string", "null"], "description": "Sheet label: 'Description'. The three printed lines are joined into a single string with newlines preserved." }
+      }
+    },
+
+    "characteristics": {
+      "title": "Characteristics",
+      "description": "The nine characteristics. Printed identically on pages 1, 2 and 3 of the sheet; represented once here.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["weaponSkill", "ballisticSkill", "strength", "toughness", "agility", "intelligence", "perception", "willpower", "fellowship"],
+      "properties": {
+        "weaponSkill": { "$ref": "#/$defs/characteristic", "properties": { "abbreviation": { "const": "WS" } } },
+        "ballisticSkill": { "$ref": "#/$defs/characteristic", "properties": { "abbreviation": { "const": "BS" } } },
+        "strength": { "$ref": "#/$defs/characteristic", "properties": { "abbreviation": { "const": "S" } } },
+        "toughness": { "$ref": "#/$defs/characteristic", "properties": { "abbreviation": { "const": "T" } } },
+        "agility": { "$ref": "#/$defs/characteristic", "properties": { "abbreviation": { "const": "Ag" } } },
+        "intelligence": { "$ref": "#/$defs/characteristic", "properties": { "abbreviation": { "const": "Int" } } },
+        "perception": { "$ref": "#/$defs/characteristic", "properties": { "abbreviation": { "const": "Per" } } },
+        "willpower": { "$ref": "#/$defs/characteristic", "properties": { "abbreviation": { "const": "WP" } } },
+        "fellowship": { "$ref": "#/$defs/characteristic", "properties": { "abbreviation": { "const": "Fel" } } }
+      }
+    },
+
+    "skills": {
+      "title": "Skills",
+      "description": "All skills printed on page 1. 'isBasicSkill' is printed information (the filled black square in the Basic column) and is fixed by the sheet; 'proficiency' is what the player has marked. Skills marked with a dagger on the sheet are group skills and carry an array of specialisations instead of a proficiency of their own.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "acrobatics", "awareness", "barter", "blather", "carouse", "charm", "chemUse", "ciphers",
+        "climb", "command", "commonLore", "concealment", "contortionist", "deceive", "demolition",
+        "disguise", "dodge", "drive", "evaluate", "forbiddenLore", "gamble", "inquiry", "interrogation",
+        "intimidate", "invocation", "lipReading", "literacy", "logic", "medicae", "navigation",
+        "performer", "pilot", "psyniscience", "scholasticLore", "scrutiny", "search", "secretTongue",
+        "security", "shadowing", "silentMove", "sleightOfHand", "speakLanguage", "survival", "swim",
+        "techUse", "tracking", "trade", "wrangling", "additionalSkills"
+      ],
+      "properties": {
+
+        "acrobatics": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Ag" }, "isBasicSkill": { "const": false } } },
+        "awareness": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Per" }, "isBasicSkill": { "const": true } } },
+        "barter": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Fel" }, "isBasicSkill": { "const": true } } },
+        "blather": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Fel" }, "isBasicSkill": { "const": false } } },
+        "carouse": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "T" }, "isBasicSkill": { "const": true } } },
+        "charm": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Fel" }, "isBasicSkill": { "const": true } } },
+        "chemUse": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "const": false } } },
+
+        "ciphers": {
+          "$ref": "#/$defs/groupSkill",
+          "description": "Sheet label: 'Ciphers (Int)†'. Specialisation examples: Underworld, Acolyte, Occult.",
+          "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "const": false } }
+        },
+
+        "climb": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "S" }, "isBasicSkill": { "const": true } } },
+        "command": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Fel" }, "isBasicSkill": { "const": true } } },
+
+        "commonLore": {
+          "$ref": "#/$defs/groupSkill",
+          "description": "Sheet label: 'Common Lore (Int)†'. Specialisation examples: Imperium, Adeptus Arbites, Tech.",
+          "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "const": false } }
+        },
+
+        "concealment": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Ag" }, "isBasicSkill": { "const": true } } },
+        "contortionist": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Ag" }, "isBasicSkill": { "const": true } } },
+        "deceive": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Fel" }, "isBasicSkill": { "const": true } } },
+        "demolition": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "const": false } } },
+        "disguise": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Fel" }, "isBasicSkill": { "const": true } } },
+        "dodge": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Ag" }, "isBasicSkill": { "const": true } } },
+
+        "drive": {
+          "$ref": "#/$defs/groupSkill",
+          "description": "Sheet label: 'Drive (Ag)†'. Specialisation examples: Ground Vehicle, Walker, Hover Vehicle.",
+          "properties": { "characteristic": { "const": "Ag" }, "isBasicSkill": { "const": false } }
+        },
+
+        "evaluate": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "const": true } } },
+
+        "forbiddenLore": {
+          "$ref": "#/$defs/groupSkill",
+          "description": "Sheet label: 'Forbidden Lore (Int)†'. Specialisation examples: Daemonology, Heresy, Xenos.",
+          "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "const": false } }
+        },
+
+        "gamble": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "const": true } } },
+        "inquiry": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Fel" }, "isBasicSkill": { "const": true } } },
+        "interrogation": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "WP" }, "isBasicSkill": { "const": false } } },
+        "intimidate": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "S" }, "isBasicSkill": { "const": true } } },
+        "invocation": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "WP" }, "isBasicSkill": { "const": false } } },
+        "lipReading": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Per" }, "isBasicSkill": { "const": false } } },
+        "literacy": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "const": false } } },
+        "logic": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "const": true } } },
+        "medicae": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "const": false } } },
+
+        "navigation": {
+          "$ref": "#/$defs/groupSkill",
+          "description": "Sheet label: 'Navigation (Int)†'. The sheet prints a full box row here, but it is a group skill; normalised to specialisations (Surface, Stellar, Warp).",
+          "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "const": false } }
+        },
+
+        "performer": {
+          "$ref": "#/$defs/groupSkill",
+          "description": "Sheet label: 'Performer (Fel)†'. Specialisation examples: Singer, Dancer, Storyteller.",
+          "properties": { "characteristic": { "const": "Fel" }, "isBasicSkill": { "const": false } }
+        },
+
+        "pilot": {
+          "$ref": "#/$defs/groupSkill",
+          "description": "Sheet label: 'Pilot (Ag)†'. Specialisation examples: Civilian Craft, Military Craft.",
+          "properties": { "characteristic": { "const": "Ag" }, "isBasicSkill": { "const": false } }
+        },
+
+        "psyniscience": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Per" }, "isBasicSkill": { "const": false } } },
+
+        "scholasticLore": {
+          "$ref": "#/$defs/groupSkill",
+          "description": "Sheet label: 'Scholasic Lore (Int)†' (typo on the printed sheet; correct name is Scholastic Lore). Specialisation examples: Legend, Imperial Creed, Judgement.",
+          "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "const": false } }
+        },
+
+        "scrutiny": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Per" }, "isBasicSkill": { "const": true } } },
+        "search": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Per" }, "isBasicSkill": { "const": true } } },
+
+        "secretTongue": {
+          "$ref": "#/$defs/groupSkill",
+          "description": "Sheet label: 'Secret Tongue (Int)†'. Specialisation examples: Acolyte, Military, Rogue Trader.",
+          "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "const": false } }
+        },
+
+        "security": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Ag" }, "isBasicSkill": { "const": false } } },
+        "shadowing": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Ag" }, "isBasicSkill": { "const": false } } },
+        "silentMove": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Ag" }, "isBasicSkill": { "const": true } } },
+        "sleightOfHand": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Ag" }, "isBasicSkill": { "const": false } } },
+
+        "speakLanguage": {
+          "$ref": "#/$defs/groupSkill",
+          "description": "Sheet label: 'Speak Language (Int)†'. Specialisation examples: Low Gothic, High Gothic, Hive Dialect.",
+          "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "const": false } }
+        },
+
+        "survival": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "const": false } } },
+        "swim": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "S" }, "isBasicSkill": { "const": true } } },
+        "techUse": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "const": false } } },
+        "tracking": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "const": false } } },
+
+        "trade": {
+          "$ref": "#/$defs/groupSkill",
+          "description": "Sheet label: 'Trade (Int)†'. The sheet prints a full box row plus write-in lines; normalised to specialisations (Armourer, Cook, Copyist, ...).",
+          "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "const": false } }
+        },
+
+        "wrangling": {
+          "$ref": "#/$defs/skill",
+          "description": "Sheet label: 'Wrangling (Int)'. Not a group skill; the blank write-in line printed beneath it on the sheet maps to 'additionalSkills'.",
+          "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "const": false } }
+        },
+
+        "additionalSkills": {
+          "type": "array",
+          "description": "Any skill written onto a blank line that does not belong to one of the printed group skills (house rules, supplement skills).",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "characteristic", "isBasicSkill", "proficiency"],
+            "properties": {
+              "name": { "type": "string" },
+              "characteristic": { "$ref": "#/$defs/characteristicAbbreviation" },
+              "isBasicSkill": { "type": ["boolean", "null"] },
+              "proficiency": { "$ref": "#/$defs/skillProficiency" },
+              "notes": { "type": ["string", "null"] }
+            }
+          }
+        }
+      }
+    },
+
+    "wounds": {
+      "title": "Wounds",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["totalWounds", "currentWounds", "criticalDamage", "fatigue"],
+      "properties": {
+        "totalWounds": { "type": ["integer", "null"], "minimum": 0, "description": "Sheet label: 'TOTAL WOUNDS'." },
+        "currentWounds": { "type": ["integer", "null"], "description": "Sheet label: 'CURRENT WOUNDS'. May be negative when the character is taking critical damage." },
+        "criticalDamage": { "type": ["string", "null"], "description": "Sheet label: 'Critical Damage'. Free text; players record the effect, not just a number." },
+        "fatigue": { "type": ["integer", "null"], "minimum": 0, "description": "Sheet label: 'Fatigue'." }
+      }
+    },
+
+    "fatePoints": {
+      "title": "Fate Points",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["totalFatePoints", "currentFatePoints"],
+      "properties": {
+        "totalFatePoints": { "type": ["integer", "null"], "minimum": 0, "description": "Sheet label: 'TOTAL FATE POINTS'." },
+        "currentFatePoints": { "type": ["integer", "null"], "minimum": 0, "description": "Sheet label: 'CURRENT FATE POINTS'." }
+      }
+    },
+
+    "armour": {
+      "title": "Armour",
+      "description": "The six hit locations of the armour diagram. Hit-roll ranges are printed on the sheet and are therefore fixed constants; 'type' and 'armourPoints' are filled in by the player.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["head", "rightArm", "leftArm", "body", "rightLeg", "leftLeg"],
+      "properties": {
+        "head": { "$ref": "#/$defs/armourLocation", "properties": { "location": { "const": "Head" }, "hitRoll": { "const": "1-10" }, "hitRollMin": { "const": 1 }, "hitRollMax": { "const": 10 } } },
+        "rightArm": { "$ref": "#/$defs/armourLocation", "properties": { "location": { "const": "Right Arm" }, "hitRoll": { "const": "11-20" }, "hitRollMin": { "const": 11 }, "hitRollMax": { "const": 20 } } },
+        "leftArm": { "$ref": "#/$defs/armourLocation", "properties": { "location": { "const": "Left Arm" }, "hitRoll": { "const": "21-30" }, "hitRollMin": { "const": 21 }, "hitRollMax": { "const": 30 } } },
+        "body": { "$ref": "#/$defs/armourLocation", "properties": { "location": { "const": "Body" }, "hitRoll": { "const": "31-70" }, "hitRollMin": { "const": 31 }, "hitRollMax": { "const": 70 } } },
+        "rightLeg": { "$ref": "#/$defs/armourLocation", "properties": { "location": { "const": "Right Leg" }, "hitRoll": { "const": "71-85" }, "hitRollMin": { "const": 71 }, "hitRollMax": { "const": 85 } } },
+        "leftLeg": { "$ref": "#/$defs/armourLocation", "properties": { "location": { "const": "Left Leg" }, "hitRoll": { "const": "86-00" }, "hitRollMin": { "const": 86 }, "hitRollMax": { "const": 100 } } }
+      }
+    },
+
+    "insanity": {
+      "title": "Insanity",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["currentPoints", "degreeOfMadness", "disorders"],
+      "properties": {
+        "currentPoints": { "type": ["integer", "null"], "minimum": 0, "description": "Sheet label: 'Current Points'." },
+        "degreeOfMadness": { "type": ["string", "null"], "description": "Sheet label: 'Degree of Madness'." },
+        "disorders": { "type": "array", "description": "Sheet label: 'Disorders' (four printed lines, unbounded here).", "items": { "type": "string" } }
+      }
+    },
+
+    "corruption": {
+      "title": "Corruption",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["currentPoints", "degreeOfCorruption", "malignancies"],
+      "properties": {
+        "currentPoints": { "type": ["integer", "null"], "minimum": 0, "description": "Sheet label: 'Current Points'." },
+        "degreeOfCorruption": { "type": ["string", "null"], "description": "Sheet label: 'Degree of Corruption'." },
+        "malignancies": { "type": "array", "description": "Sheet label: 'Malignancies' (four printed lines, unbounded here).", "items": { "type": "string" } }
+      }
+    },
+
+    "movement": {
+      "title": "Movement",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["halfAction", "fullAction", "charge", "run"],
+      "properties": {
+        "halfAction": { "type": ["integer", "null"], "minimum": 0, "description": "Sheet label: 'Half Action', in metres." },
+        "fullAction": { "type": ["integer", "null"], "minimum": 0, "description": "Sheet label: 'Full Action', in metres." },
+        "charge": { "type": ["integer", "null"], "minimum": 0, "description": "Sheet label: 'Charge', in metres." },
+        "run": { "type": ["integer", "null"], "minimum": 0, "description": "Sheet label: 'Run', in metres." }
+      }
+    },
+
+    "weapons": {
+      "title": "Weapons",
+      "description": "Page 2. The sheet prints three ranged and four melee slots; both arrays are unbounded here.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ranged", "melee"],
+      "properties": {
+        "ranged": { "type": "array", "items": { "$ref": "#/$defs/rangedWeapon" } },
+        "melee": { "type": "array", "items": { "$ref": "#/$defs/meleeWeapon" } }
+      }
+    },
+
+    "talentsAndTraits": {
+      "title": "Talents and Traits",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["homeworldBackground", "advancesTalentsAndTraits"],
+      "properties": {
+        "homeworldBackground": {
+          "type": "array",
+          "description": "Sheet label: 'HOMEWORLD / BACKGROUND'.",
+          "items": { "$ref": "#/$defs/namedEntry" }
+        },
+        "advancesTalentsAndTraits": {
+          "type": "array",
+          "description": "Sheet label: 'ADVANCES TALENTS AND TRAITS'.",
+          "items": { "$ref": "#/$defs/namedEntry" }
+        }
+      }
+    },
+
+    "gear": {
+      "title": "Gear",
+      "type": "array",
+      "description": "Sheet label: 'GEAR' (page 2). Unbounded.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" },
+          "quantity": { "type": ["integer", "null"], "minimum": 0, "description": "Parsed from leading counts such as '3 x frag grenade'; null when the entry carries no count." },
+          "notes": { "type": ["string", "null"] }
+        }
+      }
+    },
+
+    "weaponTraining": {
+      "title": "Weapon Training Talents",
+      "description": "The checkbox block at the foot of page 2. Each flag is true when the box is ticked.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["basic", "pistol", "melee", "exotic"],
+      "properties": {
+        "basic": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["bolt", "flame", "las", "launcher", "melta", "plasma", "primitive", "sp"],
+          "properties": {
+            "bolt": { "type": "boolean" },
+            "flame": { "type": "boolean" },
+            "las": { "type": "boolean" },
+            "launcher": { "type": "boolean" },
+            "melta": { "type": "boolean" },
+            "plasma": { "type": "boolean" },
+            "primitive": { "type": "boolean" },
+            "sp": { "type": "boolean" }
+          }
+        },
+        "pistol": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["bolt", "flame", "las", "launcher", "melta", "plasma", "primitive", "sp"],
+          "properties": {
+            "bolt": { "type": "boolean" },
+            "flame": { "type": "boolean" },
+            "las": { "type": "boolean" },
+            "launcher": { "type": "boolean" },
+            "melta": { "type": "boolean" },
+            "plasma": { "type": "boolean" },
+            "primitive": { "type": "boolean" },
+            "sp": { "type": "boolean" }
+          }
+        },
+        "melee": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["primitive", "chain", "shock", "power"],
+          "properties": {
+            "primitive": { "type": "boolean" },
+            "chain": { "type": "boolean" },
+            "shock": { "type": "boolean" },
+            "power": { "type": "boolean" }
+          }
+        },
+        "exotic": {
+          "type": "array",
+          "description": "Sheet label: 'Exotic Weapon Training (____)'. Four printed lines, unbounded here. Only ticked entries with a written-in weapon appear.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["weapon"],
+            "properties": { "weapon": { "type": "string" } }
+          }
+        }
+      }
+    },
+
+    "advances": {
+      "title": "Advances and Experience",
+      "description": "Page 3.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rankAdvances", "eliteAdvances", "totalExperience", "spentExperience"],
+      "properties": {
+        "rankAdvances": {
+          "type": "array",
+          "description": "One entry per printed rank block (Rank 1 to Rank 8). Blocks left empty may be omitted.",
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["rank", "entries"],
+            "properties": {
+              "rank": { "type": "integer", "minimum": 1, "maximum": 8 },
+              "entries": { "type": "array", "items": { "$ref": "#/$defs/advanceEntry" } }
+            }
+          }
+        },
+        "eliteAdvances": {
+          "type": "array",
+          "description": "Sheet label: 'ELITE ADVANCES'.",
+          "items": { "$ref": "#/$defs/advanceEntry" }
+        },
+        "totalExperience": { "type": ["integer", "null"], "minimum": 0, "description": "Sheet label: 'TOTAL EXPERIENCE'." },
+        "spentExperience": { "type": ["integer", "null"], "minimum": 0, "description": "Sheet label: 'SPENT EXPERIENCE'." }
+      }
+    },
+
+    "psychic": {
+      "title": "Psychic Powers",
+      "description": "Pages 4 and 5. Non-psykers leave this section blank: psyRating null, both arrays empty.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["psyRating", "psychicDiscipline", "minorPowers", "powers"],
+      "properties": {
+        "psyRating": { "type": ["integer", "null"], "minimum": 0, "description": "Sheet label: 'Psy Rating'." },
+        "psychicDiscipline": { "type": ["string", "null"], "description": "Sheet label: 'Psychic Discipline'." },
+        "minorPowers": {
+          "type": "array",
+          "description": "Ticked entries from the 'Minor Psychic Powers' table only. The 32 printed rows are: Call Creatures, Call Item, Chameleon, Déjà vu, Distort Vision, Dull Pain, Fearful Aura, Flash Bang, Float, Forget Me, Healer, Inflict Pain, Inspiring Aura, Knack, Lucky, Precognition, Psychic Stench, Resist Possession, Sense Presence, Spasm, Spectral Hands, Staunch Bleeding, Torch, Touch of Madness, Trick, Unnatural Aim, Wall Walk, Warp Howl, Weaken Veil, Weapon Jinx, White Noise, Wither. Eight further write-in rows are unbounded here.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "threshold", "focus", "sustain", "isCustom"],
+            "properties": {
+              "name": { "type": "string" },
+              "threshold": { "type": ["integer", "null"], "minimum": 0, "description": "Pre-printed for the 32 standard powers; written in for custom rows." },
+              "focus": { "anyOf": [{ "enum": ["Free", "Half", "Full", "Reaction"] }, { "type": "null" }], "description": "Sheet column: 'Focus'." },
+              "sustain": { "type": ["boolean", "null"], "description": "Sheet column: 'Sustain'. Printed as Yes/No." },
+              "isCustom": { "type": "boolean", "description": "True when the row was written onto one of the blank lines rather than pre-printed." }
+            }
+          }
+        },
+        "powers": {
+          "type": "array",
+          "description": "The detailed POWER boxes on pages 4 and 5. Six per page as printed; unbounded here.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "threshold", "focusTime", "sustained", "range", "description"],
+            "properties": {
+              "name": { "type": ["string", "null"], "description": "Sheet label: 'POWER'." },
+              "threshold": { "type": ["integer", "null"], "minimum": 0, "description": "Sheet label: 'THRESHOLD'." },
+              "focusTime": { "type": ["string", "null"], "description": "Sheet label: 'FOCUS TIME'. Free text (e.g. 'Half Action', '1 minute')." },
+              "sustained": { "type": ["string", "null"], "description": "Sheet label: 'SUSTAINED'. Free text rather than boolean, because entries such as 'Half Action' are common." },
+              "range": { "type": ["string", "null"], "description": "Sheet label: 'RANGE' (e.g. '10 x PR metres')." },
+              "description": { "type": ["string", "null"], "description": "Sheet label: 'DESCRIPTION'." }
+            }
+          }
+        }
+      }
+    }
+  },
+
+  "$defs": {
+
+    "characteristicAbbreviation": {
+      "enum": ["WS", "BS", "S", "T", "Ag", "Int", "Per", "WP", "Fel", null]
+    },
+
+    "characteristic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["abbreviation", "base", "advancesTaken", "total", "bonus"],
+      "properties": {
+        "abbreviation": { "enum": ["WS", "BS", "S", "T", "Ag", "Int", "Per", "WP", "Fel"] },
+        "base": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Starting value before characteristic advances (roll plus homeworld modifiers)."
+        },
+        "advancesTaken": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 4,
+          "description": "Number of ticked boxes in the 'Characteristic Advances' row (0-4). Each advance grants +5."
+        },
+        "total": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 100,
+          "description": "The value written in the circle. Normally base + (5 x advancesTaken), but it is stored explicitly rather than derived, because temporary or item modifiers can make the written value differ."
+        },
+        "bonus": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 10,
+          "description": "The characteristic bonus: the tens digit of 'total', i.e. floor(total / 10)."
+        }
+      }
+    },
+
+    "skillProficiency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level", "modifier"],
+      "description": "Which of the four boxes (Basic / Trained / +10% / +20%) applies, together with how the test target is computed. Target = floor(characteristic total x characteristicMultiplier) + flatBonus, and only when 'usable' is true.",
+      "properties": {
+        "level": {
+          "enum": ["Untrained", "Basic", "Trained", "+10", "+20"],
+          "description": "'Untrained' = an Advanced skill the character does not have (no box ticked, and the printed Basic square is empty) — it cannot be tested at all. 'Basic' = a Basic Skill used without training: the test uses half the governing characteristic. 'Trained', '+10' and '+20' are the ticked advance boxes."
+        },
+        "modifier": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["usable", "characteristicMultiplier", "flatBonus"],
+          "description": "Derived from 'level'. Untrained -> usable false, multiplier 0, flatBonus 0. Basic -> true, 0.5, 0. Trained -> true, 1, 0. +10 -> true, 1, 10. +20 -> true, 1, 20.",
+          "properties": {
+            "usable": { "type": "boolean" },
+            "characteristicMultiplier": { "enum": [0, 0.5, 1] },
+            "flatBonus": { "enum": [0, 10, 20] }
+          }
+        }
+      }
+    },
+
+    "skill": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["characteristic", "isBasicSkill", "proficiency"],
+      "properties": {
+        "characteristic": { "enum": ["WS", "BS", "S", "T", "Ag", "Int", "Per", "WP", "Fel"], "description": "Governing characteristic, printed in brackets after the skill name." },
+        "isBasicSkill": { "type": "boolean", "description": "Printed information, not a player choice: true where the sheet shows a filled black square in the Basic column." },
+        "proficiency": { "$ref": "#/$defs/skillProficiency" },
+        "notes": { "type": ["string", "null"] }
+      }
+    },
+
+    "skillSpecialisation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject", "proficiency"],
+      "properties": {
+        "subject": { "type": "string", "description": "The text written on the blank line, e.g. 'Imperium' for Common Lore." },
+        "proficiency": { "$ref": "#/$defs/skillProficiency" },
+        "notes": { "type": ["string", "null"] }
+      }
+    },
+
+    "groupSkill": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["characteristic", "isBasicSkill", "specialisations"],
+      "description": "A skill marked with a dagger on the sheet. It has no proficiency of its own; each specialisation is acquired and advanced separately. An empty array means the character has none of them.",
+      "properties": {
+        "characteristic": { "enum": ["WS", "BS", "S", "T", "Ag", "Int", "Per", "WP", "Fel"] },
+        "isBasicSkill": { "type": "boolean" },
+        "specialisations": { "type": "array", "items": { "$ref": "#/$defs/skillSpecialisation" } },
+        "notes": { "type": ["string", "null"] }
+      }
+    },
+
+    "armourLocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["location", "hitRoll", "hitRollMin", "hitRollMax", "type", "armourPoints"],
+      "properties": {
+        "location": { "type": "string", "description": "Printed location name." },
+        "hitRoll": { "type": "string", "description": "Hit-location range exactly as printed on the sheet, e.g. '86-00'." },
+        "hitRollMin": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "hitRollMax": { "type": "integer", "minimum": 1, "maximum": 100, "description": "Normalised numeric bound; the printed '00' is 100." },
+        "type": { "type": ["string", "null"], "description": "Sheet label: 'Type:'. The armour worn on this location, e.g. 'Flak Coat'." },
+        "armourPoints": { "type": ["integer", "null"], "minimum": 0, "description": "Armour Points for this location. The sheet prints only 'Type:', but the AP value is written alongside it; split it out here when present." }
+      }
+    },
+
+    "rangedWeapon": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "class", "damage", "damageType", "penetration", "range", "rateOfFire", "clip", "reload", "specialRules"],
+      "properties": {
+        "name": { "type": ["string", "null"], "description": "Sheet label: 'NAME'." },
+        "class": { "type": ["string", "null"], "description": "Sheet label: 'CLASS', e.g. 'Basic', 'Pistol', 'Heavy'." },
+        "damage": { "type": ["string", "null"], "description": "Sheet label: 'DAMAGE'. Dice expression, e.g. '1d10+3'." },
+        "damageType": { "type": ["string", "null"], "description": "Sheet label: 'TYPE', e.g. 'E' (Energy), 'I' (Impact), 'R' (Rending), 'X' (Explosive)." },
+        "penetration": { "type": ["integer", "null"], "minimum": 0, "description": "Sheet label: 'PEN'." },
+        "range": { "type": ["string", "null"], "description": "Sheet label: 'RANGE', e.g. '100m'." },
+        "rateOfFire": { "type": ["string", "null"], "description": "Sheet label: 'ROF'. Kept as text because of the 'S/3/10' notation." },
+        "clip": { "type": ["integer", "null"], "minimum": 0, "description": "Sheet label: 'CLIP'." },
+        "reload": { "type": ["string", "null"], "description": "Sheet label: 'RLD', e.g. 'Full', '2 Full'." },
+        "specialRules": { "type": "array", "description": "Sheet label: 'SPECIAL RULES'. Comma-separated text on the sheet, split into items here.", "items": { "type": "string" } }
+      }
+    },
+
+    "meleeWeapon": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "class", "damage", "damageType", "penetration", "specialRules"],
+      "properties": {
+        "name": { "type": ["string", "null"], "description": "Sheet label: 'NAME'." },
+        "class": { "type": ["string", "null"], "description": "Sheet label: 'CLASS', e.g. 'Melee', 'Thrown'." },
+        "damage": { "type": ["string", "null"], "description": "Sheet label: 'DAMAGE'." },
+        "damageType": { "type": ["string", "null"], "description": "Sheet label: 'TYPE'." },
+        "penetration": { "type": ["integer", "null"], "minimum": 0, "description": "Sheet label: 'PEN'." },
+        "specialRules": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+
+    "namedEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "specialisation": { "type": ["string", "null"], "description": "Parenthesised qualifier where present, e.g. 'Weapon Training (Las)'." },
+        "notes": { "type": ["string", "null"] }
+      }
+    },
+
+    "advanceEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["advance", "cost"],
+      "properties": {
+        "advance": { "type": ["string", "null"], "description": "Sheet column: 'ADVANCE'." },
+        "cost": { "type": ["integer", "null"], "minimum": 0, "description": "Sheet column: 'COST', in experience points." }
+      }
+    }
+  }
+}
