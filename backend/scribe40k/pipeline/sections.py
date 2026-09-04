@@ -118,6 +118,12 @@ class Section:
         )
 
 
+def _basic_skill_list() -> str:
+    """The skills whose first box is printed solid, so the model can subtract it."""
+    names = [spec.printed_label for spec in K.SKILLS if spec.is_basic]
+    return "  " + ", ".join(names)
+
+
 def _skill_reference() -> str:
     """The printed skill list, so the model matches names instead of inventing keys."""
     lines = []
@@ -180,40 +186,66 @@ SKILLS = Section(
     max_tokens=16000,
     instructions=f"""\
 The skills grid runs in three columns across the middle of page 1. Each row is a skill
-name followed by four tick boxes, in this order:
+name followed by four boxes, in this order:
 
     Basic | Trained | +10% | +20%
 
-The first box is printed *filled* for Basic Skills and is not a player mark -- ignore it.
-Only the player's own ticks in Trained, +10% and +20% matter.
+THE ONE THING TO GET RIGHT: the first box is not a tick box.
 
-Return "data" as a "skills" object keyed by the identifiers below. Include only skills the
-character actually has; omit untouched ones entirely.
+For every skill marked "Basic" in the list below, the paper is printed with a solid black
+square in that first position. It is part of the form. The player did not mark it, and it
+does not mean "Trained".
 
-For an ordinary skill:
+The transcription cannot tell the difference: it renders that printed square as a ticked
+box, exactly like a real tick. So a Basic skill with *nothing* marked by the player shows
+up in the text as one ticked box followed by three empty ones. That is the untrained
+state, and such a skill must be omitted from your answer.
 
-  "dodge": {{"proficiency": {{"level": "Trained"}}}}
+In the image the two look nothing alike. The printed square is a small, perfectly even,
+machine-printed black block. A player's mark is a pen stroke -- a tick, a cross, a
+scribble -- inside an outlined box. Use the image to decide, and count only the player's
+own marks in the second, third and fourth boxes:
 
-where "level" is one of "Trained", "+10" or "+20" -- whichever is the *rightmost* ticked
-box. If only the printed Basic square is filled and the player ticked nothing, omit the
-skill.
+    one player mark   -> "Trained"
+    two               -> "+10"
+    three             -> "+20"
 
-For a group skill (marked with a dagger on the sheet), the player writes a subject on a
-blank line and ticks boxes on that line:
+The rule in one line: for a Basic skill, subtract the printed square before counting.
 
-  "commonLore": {{"specialisations": [
-      {{"subject": "Imperium", "proficiency": {{"level": "Trained"}}}},
-      {{"subject": "Tech", "proficiency": {{"level": "+10"}}}}
-  ]}}
+Basic skills (printed square present):
+{_basic_skill_list()}
 
-A group skill never has a proficiency of its own -- only specialisations. A written line
-with no ticks still counts: report it at level "Trained" and flag it as uncertain.
+Return "data" as a single "skills" object keyed by the identifiers below. Include only
+skills the character has marked; omit the rest entirely.
 
-Any skill written onto a blank line that is not a specialisation of a printed group skill
-goes into "additionalSkills":
+  {{
+    "skills": {{
+      "dodge": {{"proficiency": {{"level": "Trained"}}}},
+      "commonLore": {{"specialisations": [
+        {{"subject": "Imperium", "proficiency": {{"level": "Trained"}}}},
+        {{"subject": "Tech",     "proficiency": {{"level": "+10"}}}}
+      ]}},
+      "additionalSkills": [
+        {{"name": "Interrogation (WP)", "characteristic": "WP",
+         "proficiency": {{"level": "Trained"}}}}
+      ]
+    }}
+  }}
 
-  "additionalSkills": [{{"name": "Interrogation (WP)", "characteristic": "WP",
-                        "proficiency": {{"level": "Trained"}}}}]
+Three shapes appear there:
+
+* An ordinary skill carries one "proficiency". "level" is "Trained", "+10" or "+20":
+  whichever is the rightmost box the *player* marked.
+
+* A group skill (a dagger on the sheet) never has a proficiency of its own. The player
+  writes a subject on a blank line beneath it and marks boxes on that line; each such
+  line is one "specialisation". Every specialisation must carry a "proficiency". A line
+  with a subject written but no box marked still counts -- give it "Trained" and list it
+  under "uncertain".
+
+* A skill written onto a blank line that is not a specialisation of the group skill above
+  it goes in "additionalSkills". Note that "additionalSkills" sits *inside* "skills", as a
+  sibling of "dodge" -- not at the top level of "data".
 
 The printed skills, with their identifiers, governing characteristics and kind:
 
@@ -299,18 +331,43 @@ Page 2 holds four blocks. Return "data" shaped like this:
 
 The sheet prints {K.PRINTED_CAPACITY["weapons.ranged"]} ranged and
 {K.PRINTED_CAPACITY["weapons.melee"]} melee weapon boxes, and
-{K.PRINTED_CAPACITY["gear"]} gear lines. Include only boxes and lines that have something
+{K.PRINTED_CAPACITY["gear"]} gear rows. Include only boxes and rows that have something
 written in them; skip the empty ones rather than emitting nulls for them.
 
-"damageType" is a single letter: E energy, I impact, R rending, X explosive.
-"rateOfFire" stays as text, because of notation like "S/3/10".
-"specialRules" is the comma-separated text split into separate strings.
+WEAPONS. Every text field is a string, even when the player wrote only a number: "range"
+is "60" (or "60m"), never the number 60. "damageType" is a single letter: E energy,
+I impact, R rending, X explosive. "rateOfFire" stays as text because of notation like
+"S/3/10". "specialRules" is the comma-separated text split into separate strings.
+Players often add a count or a weight after a weapon's name -- "(x5)", "(wt 0.5)". Those
+are not part of the name: give the clean name, and put each such annotation in
+"unmapped" with the weapon it belongs to.
 
-For talents, put a parenthesised qualifier in "specialisation": "Weapon Training (Las)"
-becomes name "Weapon Training", specialisation "Las".
+TALENTS AND GEAR share one layout, and it is the part of this page most often read
+wrongly. Each printed row is a pair of write-in lines side by side. The pair is ONE
+entry, not two: the left line is the name, and the right line -- when the player used it
+-- is a note about that same entry, such as an effect ("+10 BS"), a purpose
+("(crafting)"), a weight ("(wt 3)") or a count. Put the right-hand text in that entry's
+"notes". Never report it as a separate entry, and never as unmapped.
 
-For gear, keep the item name as written; a leading count like "3 x frag grenade" is split
-out afterwards, so you may leave "quantity" null.
+  "gear": [{{"name": "Red-dot laser sight", "quantity": null, "notes": "+10 BS"}}]
+  "advancesTalentsAndTraits": [{{"name": "Electro-graft", "specialisation": null,
+                                "notes": "+10 Tech-Use"}}]
+
+The transcription of these two blocks is unreliable on a handwritten sheet: it may repeat
+one entry many times, invent entries, or drop the right-hand column altogether. Read the
+rows from the image and use the transcription only as a hint. Each row of the image is
+one entry; do not emit more entries than there are written rows.
+
+Every gear and talent entry MUST have a "name". If a row's only legible text is on the
+right-hand line, that text is the name. Never emit an entry whose name is null.
+
+For talents, a parenthesised qualifier on the name goes in "specialisation", without the
+brackets: "Weapon Training (Las)" becomes name "Weapon Training", specialisation "Las".
+
+For gear, keep the item name as written. "quantity" is an integer or null, nothing else:
+a count written as "(3)" or "x3" beside the name is the integer 3; if there is no clear
+count, leave it null and keep the text in "notes". Never put a bracketed string, a range
+or a unit into "quantity".
 
 The Weapon Training block at the foot of the page is a grid of tick boxes in three
 columns. Report true only where the box is genuinely marked. The four "Exotic Weapon

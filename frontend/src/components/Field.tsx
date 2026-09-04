@@ -7,20 +7,76 @@
  * without one looks like an ordinary input. The user only has to touch what is doubtful.
  */
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 import { useSheet } from "../state";
 import type { Flag } from "../types";
 import { FlagPopover } from "./FlagPopover";
 
+// --------------------------------------------------------------------------------------
+// Fitting text to the space the paper gives it
+// --------------------------------------------------------------------------------------
+
+const FIT_MAX_PT = 9;
+const FIT_MIN_PT = 5.5;
+
+/**
+ * Shrink an element's font until its text fits, down to a floor.
+ *
+ * The paper's boxes are small and fixed; "2d10+2 E" in a damage cell a quarter of a
+ * weapon box wide does not fit at body size. Clipping it hides the value, wrapping breaks
+ * the row, so the honest option is what a person with a pen would do: write smaller.
+ */
+export function fitText(element: HTMLElement, maxPt = FIT_MAX_PT, minPt = FIT_MIN_PT) {
+  let size = maxPt;
+  element.style.fontSize = `${size}pt`;
+  // scrollWidth reports the full content width of an <input> as well as a block, so the
+  // same loop serves the editor and the printed value.
+  while (size > minPt && element.scrollWidth > element.clientWidth + 1) {
+    size -= 0.5;
+    element.style.fontSize = `${size}pt`;
+  }
+}
+
+function useFitText<T extends HTMLElement>(value: string) {
+  const ref = useRef<T>(null);
+  useLayoutEffect(() => {
+    if (ref.current) fitText(ref.current);
+  }, [value]);
+  return ref;
+}
+
+/** A single-line input whose text shrinks to fit rather than overflowing. */
+function FittedInput(props: React.InputHTMLAttributes<HTMLInputElement> & { value: string }) {
+  const ref = useFitText<HTMLInputElement>(props.value);
+  return <input ref={ref} {...props} />;
+}
+
+/** The printed counterpart: a span that shrinks its text the same way. */
+function FittedText({ value, className }: { value: string; className?: string }) {
+  const ref = useFitText<HTMLSpanElement>(value);
+  return (
+    <span ref={ref} className={className}>
+      {value}
+    </span>
+  );
+}
+
+// --------------------------------------------------------------------------------------
+
 interface FieldShellProps {
   pointer: string;
   children: (props: { flagged: boolean; flags: Flag[] }) => ReactNode;
   className?: string;
+  /**
+   * What "this is wrong, clear it" writes into the field. Depends on the control: null
+   * for text and numbers, false for a checkbox, the resting level for a skill.
+   */
+  clearValue?: unknown;
 }
 
 /** Wraps a control with its flag badge, popover and highlight state. */
-export function FieldShell({ pointer, children, className }: FieldShellProps) {
+export function FieldShell({ pointer, children, className, clearValue = null }: FieldShellProps) {
   const { flagsAt, focusedPointer, printMode } = useSheet();
   const [open, setOpen] = useState(false);
   const element = useRef<HTMLSpanElement>(null);
@@ -61,7 +117,9 @@ export function FieldShell({ pointer, children, className }: FieldShellProps) {
           >
             {severity === "error" ? "!" : "?"}
           </button>
-          {open && <FlagPopover flags={flags} onClose={() => setOpen(false)} />}
+          {open && (
+            <FlagPopover flags={flags} clearValue={clearValue} onClose={() => setOpen(false)} />
+          )}
         </>
       )}
     </span>
@@ -94,13 +152,17 @@ export function TextField({
     return (
       <span className={`printed ${className ?? ""}`} style={{ width }}>
         {label && <span className="printed__label">{label}</span>}
-        <span className="printed__value">{value}</span>
+        {multiline ? (
+          <span className="printed__value printed__value--multiline">{value}</span>
+        ) : (
+          <FittedText value={value} className="printed__value" />
+        )}
       </span>
     );
   }
 
   return (
-    <FieldShell pointer={pointer} className={className}>
+    <FieldShell pointer={pointer} className={className} clearValue={null}>
       {({ flagged }) => (
         <>
           {label && <label className="field__label">{label}</label>}
@@ -114,7 +176,7 @@ export function TextField({
               onChange={(event) => set(pointer, event.target.value || null)}
             />
           ) : (
-            <input
+            <FittedInput
               type="text"
               className={`field__input ${flagged ? "field__input--suggested" : ""}`}
               value={value}
@@ -211,7 +273,7 @@ export function Checkbox({ pointer, label, printedFilled = false }: CheckboxProp
   }
 
   return (
-    <FieldShell pointer={pointer}>
+    <FieldShell pointer={pointer} clearValue={false}>
       {() => (
         <label className="tick tick--editable">
           <input

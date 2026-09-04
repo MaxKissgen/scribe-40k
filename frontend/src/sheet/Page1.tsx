@@ -218,7 +218,13 @@ function ProficiencyTicks({ pointer, isBasic }: { pointer: string; isBasic: bool
   // seen and jumped to. Ticked boxes are most of what a model gets wrong on this sheet,
   // so leaving them outside the review machinery would hide the commonest flag of all.
   return (
-    <FieldShell pointer={pointer} className="tickrow tickrow--skill">
+    <FieldShell
+      pointer={pointer}
+      className="tickrow tickrow--skill"
+      // "Clear it" returns the skill to its resting state: a Basic skill is always usable
+      // at half characteristic, an Advanced one is not usable at all.
+      clearValue={isBasic ? "Basic" : "Untrained"}
+    >
       {() => (
         <>
           {/* Printed information: filled black for a Basic Skill, and never clickable. */}

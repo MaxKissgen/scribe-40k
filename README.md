@@ -170,6 +170,18 @@ and Basic flag, the armour hit locations, the 32-row minor-power table: all inje
 `constants.py`. Characteristic bonuses, proficiency modifiers and gear quantities are
 computed. The model is only ever asked what the handwriting says.
 
+**The printed Basic square is not a tick.** Mistral OCR renders the solid square printed
+beside every Basic skill as a ticked box, and a model reading the transcription then
+reports every untouched Basic skill as "Trained". The prompt explains this, and a
+deterministic guard checks the model's level against the tick count on that skill's row
+of the transcription: where the model claims more marks than the transcription shows, the
+level is brought down and the model's reading is kept as a one-click alternative on the
+flag.
+
+**A flag has three answers.** *Keep as is* accepts the value, *Wrong — clear it* empties
+the field (a text field to blank, a checkbox to unticked, a skill to its resting level),
+*Not a problem* dismisses the flag without touching the value.
+
 **Inconsistencies are flagged, not corrected.** A total that disagrees with base + advances
 may be an implant; movement that disagrees with Agility may be a modifier. The sheet keeps
 what was written on it and asks you.
@@ -186,7 +198,7 @@ continuation page when printed.
 ## Development
 
 ```bash
-python -m pytest              # 232 tests
+python -m pytest              # 255 tests
 python -m ruff check backend tests
 python -m ruff format backend tests
 cd frontend && npm run typecheck

@@ -15,9 +15,11 @@ import type { Flag } from "../types";
 interface Props {
   flags: Flag[];
   onClose: () => void;
+  /** What "clear it" writes into the field; supplied by the control that owns it. */
+  clearValue?: unknown;
 }
 
-export function FlagPopover({ flags, onClose }: Props) {
+export function FlagPopover({ flags, onClose, clearValue = null }: Props) {
   const { id, set, resolveFlag } = useSheet();
   const element = useRef<HTMLDivElement>(null);
 
@@ -104,6 +106,18 @@ export function FlagPopover({ flags, onClose }: Props) {
               }}
             >
               Keep as is
+            </button>
+            <button
+              type="button"
+              className="popover__action popover__action--clear"
+              title="The extractor read something that is not there. Empty the field."
+              onClick={() => {
+                set(flag.pointer, clearValue);
+                void resolveFlag(flag, "user_fixed");
+                onClose();
+              }}
+            >
+              Wrong — clear it
             </button>
             <button
               type="button"

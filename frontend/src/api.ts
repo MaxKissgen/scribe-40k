@@ -8,6 +8,20 @@ import type {
   UnmappedStatus,
 } from "./types";
 
+/**
+ * A failed request, carrying the status so callers can tell a rejected edit (4xx --
+ * retrying will not help) from a dropped connection (retrying is exactly right).
+ */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -21,7 +35,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       /* the body was not JSON; the status text will have to do */
     }
-    throw new Error(detail);
+    throw new ApiError(detail, response.status);
   }
 
   return response.status === 204 ? (undefined as T) : ((await response.json()) as T);

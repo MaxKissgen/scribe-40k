@@ -22,7 +22,7 @@ import {
   type ReactNode,
 } from "react";
 
-import { api, type PatchOperation } from "./api";
+import { ApiError, api, type PatchOperation } from "./api";
 import { resolve, withValue } from "./pointer";
 import type {
   CharacterDocument,
@@ -131,10 +131,31 @@ export function SheetProvider({
       setSaveState("saved");
       setSaveError(null);
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const rejected = error instanceof ApiError && error.status >= 400 && error.status < 500;
+
+      if (rejected) {
+        // The server refused these edits outright. Re-queuing them would make every
+        // later save fail the same way -- which is exactly what happened: one bad edit
+        // silently blocked all saving until the page was reloaded. Drop them, and reload
+        // what the server actually holds so the screen stops showing values that will
+        // never be saved.
+        setSaveState("error");
+        setSaveError(`${message} — that edit was reverted`);
+        try {
+          const fresh = await api.get(id);
+          setCharacter(fresh.character);
+          setReport(fresh.report);
+        } catch {
+          /* leave the local state; the message already says saving failed */
+        }
+        return;
+      }
+
       setSaveState("error");
-      setSaveError(error instanceof Error ? error.message : String(error));
-      // Put the edits back so the next flush retries them rather than losing the user's
-      // typing to a dropped connection.
+      setSaveError(message);
+      // A dropped connection: put the edits back so the next flush retries them rather
+      // than losing the user's typing.
       for (const operation of operations) {
         if (!pending.current.has(operation.pointer)) {
           pending.current.set(operation.pointer, operation.value);

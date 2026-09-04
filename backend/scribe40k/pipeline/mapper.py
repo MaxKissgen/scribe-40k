@@ -21,6 +21,7 @@ from .report import (
     UnmappedSource,
 )
 from .sections import ALL_SECTIONS, Section
+from .skill_guard import guard_skill_levels
 
 
 @dataclass
@@ -39,6 +40,25 @@ def _page_text(ocr_pages: dict[int, OcrPage], sheet_pages: tuple[int, ...]) -> s
         if page and page.text.strip():
             parts.append(f"[sheet page {sheet_page}]\n{page.text}")
     return "\n\n".join(parts)
+
+
+#: Keys a model tends to put at the top level of "data" that belong one level down.
+#: ``additionalSkills`` is the known offender: the prompt shows it inside "skills", and
+#: the first live run returned it beside "skills" instead -- where the ownership check
+#: then discarded it, losing a write-in skill without a word.
+_RELOCATE: dict[str, tuple[str, str]] = {"additionalSkills": ("skills", "additionalSkills")}
+
+
+def _relocate_misplaced_keys(data: dict, section: Section) -> dict:
+    """Move a mis-nested key to where the schema wants it, if this job owns the parent."""
+    for key, (parent, child) in _RELOCATE.items():
+        if key not in data or parent not in section.owns:
+            continue
+        value = data.pop(key)
+        target = data.setdefault(parent, {})
+        if isinstance(target, dict) and child not in target:
+            target[child] = value
+    return data
 
 
 def _restrict_to_owned(data: dict, section: Section) -> tuple[dict, list[str]]:
@@ -191,7 +211,14 @@ def run_section(
 
     envelope = response.parsed
     raw_data = envelope.get("data")
-    data, rejected = _restrict_to_owned(raw_data if isinstance(raw_data, dict) else {}, section)
+    raw_data = _relocate_misplaced_keys(raw_data if isinstance(raw_data, dict) else {}, section)
+    data, rejected = _restrict_to_owned(raw_data, section)
+
+    guard_flags: list[Flag] = []
+    if section.name == "skills" and isinstance(data.get("skills"), dict):
+        guard_flags = guard_skill_levels(
+            data["skills"], text, sheet_page=primary, pdf_page=pdf_page
+        )
 
     flags = _flags_from_uncertain(
         envelope.get("uncertain") or [] if isinstance(envelope.get("uncertain"), list) else [],
@@ -216,7 +243,7 @@ def run_section(
     return SectionResult(
         section=section,
         data=data,
-        flags=flags,
+        flags=[*flags, *guard_flags],
         unmapped=unmapped,
         record=SectionRecord(
             name=section.name,

@@ -58,16 +58,38 @@ export function Repeat<T>({
       : items.length
     : Math.max(items.length, minimumRows ?? printedCapacity);
 
+  // A placeholder row is one the paper prints but the document does not hold yet. Its
+  // inputs must not write to `/gear/7/name` while the array has three items: the server
+  // (rightly) refuses to invent structure, and the refusal used to block every later
+  // save. So the moment a placeholder gets focus, the array is extended to reach it, and
+  // only then does typing address a row that exists.
+  const materialise = (index: number) => {
+    if (index < items.length) return;
+    set(pointer, padded(items, index + 1, blank));
+  };
+
   const rows: ReactNode[] = [];
   for (let index = 0; index < visible; index += 1) {
     const item = items[index];
     const overflow = index >= printedCapacity;
+    const placeholder = item === undefined;
 
     rows.push(
       <div
         key={index}
-        className={`repeat__row ${overflow ? "repeat__row--overflow" : ""}`}
+        className={[
+          "repeat__row",
+          overflow ? "repeat__row--overflow" : "",
+          placeholder ? "repeat__row--placeholder" : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
         data-index={index}
+        // Both paths, because focus is not guaranteed to arrive before the first
+        // keystroke (a hidden window, an autofill, a paste). Capture-phase, so the row
+        // exists before the input's own onChange writes into it.
+        onFocusCapture={placeholder ? () => materialise(index) : undefined}
+        onChangeCapture={placeholder ? () => materialise(index) : undefined}
       >
         {children(item, index, `${pointer}/${index}`)}
         {!printMode && item !== undefined && (

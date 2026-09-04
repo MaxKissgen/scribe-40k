@@ -1433,3 +1433,47 @@ label.tick input[type="checkbox"] {
   color: var(--muted);
   border: 1px solid #d8dde3;
 }
+
+/* -- Corrections from first real use --------------------------------------------- */
+
+/*
+ * A placeholder row -- printed on the paper, not yet in the document -- looks different
+ * from a real row that happens to be empty. Without this, deleting an empty entry appears
+ * to do nothing but remove its delete button, because the placeholder that takes its
+ * place is pixel-identical.
+ */
+.repeat__row--placeholder .field__input {
+  border-bottom-style: dotted;
+  border-bottom-color: #9a9a96;
+}
+
+/* Text that shrinks to fit (see fitText) needs a box to measure against. */
+.printed__value {
+  display: inline-block;
+  overflow: hidden;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.printed__value--multiline {
+  white-space: pre-wrap;
+}
+
+.weapon__stats .printed,
+.power-box__row .printed {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+}
+
+/* Weapon-training labels are long and the column is narrow: wrap rather than clip. */
+.tick__label {
+  font-size: 7.5pt;
+  white-space: normal;
+  line-height: 1.15;
+}
+
+.popover__action--clear {
+  color: var(--flag-error);
+  border-color: var(--flag-error);
+}
