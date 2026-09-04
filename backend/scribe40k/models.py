@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 CharacteristicAbbrev = Literal["WS", "BS", "S", "T", "Ag", "Int", "Per", "WP", "Fel"]
 ProficiencyLevel = Literal["Untrained", "Basic", "Trained", "+10", "+20"]
@@ -88,9 +88,38 @@ class ProficiencyModifier(Strict):
     flatBonus: Literal[0, 10, 20]
 
 
+#: Verbatim from the schema's ``$defs.skillProficiency.modifier`` description. Duplicated
+#: here rather than imported from :mod:`scribe40k.constants` to keep this module free of
+#: project imports; ``tests/test_blank_and_schema.py`` asserts the two agree.
+_MODIFIER_FOR_LEVEL: dict[str, dict] = {
+    "Untrained": {"usable": False, "characteristicMultiplier": 0, "flatBonus": 0},
+    "Basic": {"usable": True, "characteristicMultiplier": 0.5, "flatBonus": 0},
+    "Trained": {"usable": True, "characteristicMultiplier": 1, "flatBonus": 0},
+    "+10": {"usable": True, "characteristicMultiplier": 1, "flatBonus": 10},
+    "+20": {"usable": True, "characteristicMultiplier": 1, "flatBonus": 20},
+}
+
+
 class SkillProficiency(Strict):
     level: ProficiencyLevel
     modifier: ProficiencyModifier
+
+    @model_validator(mode="before")
+    @classmethod
+    def _fill_modifier(cls, data):
+        """Derive ``modifier`` from ``level`` when it is absent.
+
+        The schema requires both, but the modifier is a pure function of the level, so a
+        reasoning model is never asked for it -- the mapping prompts explicitly say to omit
+        it. Filling it in here means a partial fragment like ``{"level": "Trained"}``
+        becomes a complete, schema-valid object wherever it appears, including inside the
+        specialisation lists that replace wholesale on merge.
+        """
+        if isinstance(data, dict) and "modifier" not in data:
+            fallback = _MODIFIER_FOR_LEVEL.get(data.get("level"))
+            if fallback is not None:
+                data = {**data, "modifier": fallback}
+        return data
 
 
 class Skill(Strict):
