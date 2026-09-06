@@ -468,16 +468,34 @@
               "threshold": { "type": ["integer", "null"], "minimum": 0, "description": "Sheet label: 'THRESHOLD'." },
               "focusTime": { "type": ["string", "null"], "description": "Sheet label: 'FOCUS TIME'. Free text (e.g. 'Half Action', '1 minute')." },
               "sustained": { "type": ["string", "null"], "description": "Sheet label: 'SUSTAINED'. Free text rather than boolean, because entries such as 'Half Action' are common." },
-              "range": { "type": ["string", "null"], "description": "Sheet label: 'RANGE' (e.g. '10 x PR metres')." },
+              "range": { "type": ["integer", "null"], "minimum": 0, "description": "Sheet label: 'RANGE', in metres. A power whose range is a formula rather than a number ('10 x PR metres') has no integer to record: leave it null and write the formula in 'description'." },
               "description": { "type": ["string", "null"], "description": "Sheet label: 'DESCRIPTION'." }
             }
           }
         }
       }
+    },
+
+    "notePages": {
+      "title": "Note Pages",
+      "type": "array",
+      "description": "Free-text pages that are not part of the printed sheet: session notes, a background write-up, a page of scribbles a player attached to their sheet. Not printed on the paper form, so nothing here has a sheet label; each entry exports as its own continuation page.",
+      "items": { "$ref": "#/$defs/notePage" }
     }
   },
 
   "$defs": {
+
+    "notePage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "text"],
+      "properties": {
+        "title": { "type": ["string", "null"], "description": "What the page is, e.g. 'Session 4 notes'. Null when it has no heading of its own." },
+        "text": { "type": ["string", "null"], "description": "The page's content, as free text. Line breaks are significant." },
+        "sourcePdfPage": { "type": ["integer", "null"], "minimum": 1, "description": "The page of the uploaded PDF this was transcribed from, when it came from one. Null for a page added by hand." }
+      }
+    },
 
     "characteristicAbbreviation": {
       "enum": ["WS", "BS", "S", "T", "Ag", "Int", "Per", "WP", "Fel", null]
@@ -600,7 +618,7 @@
         "damage": { "type": ["string", "null"], "description": "Sheet label: 'DAMAGE'. Dice expression, e.g. '1d10+3'." },
         "damageType": { "type": ["string", "null"], "description": "Sheet label: 'TYPE', e.g. 'E' (Energy), 'I' (Impact), 'R' (Rending), 'X' (Explosive)." },
         "penetration": { "type": ["integer", "null"], "minimum": 0, "description": "Sheet label: 'PEN'." },
-        "range": { "type": ["string", "null"], "description": "Sheet label: 'RANGE', e.g. '100m'." },
+        "range": { "type": ["integer", "null"], "minimum": 0, "description": "Sheet label: 'RANGE', in metres: 100, not '100m'." },
         "rateOfFire": { "type": ["string", "null"], "description": "Sheet label: 'ROF'. Kept as text because of the 'S/3/10' notation." },
         "clip": { "type": ["integer", "null"], "minimum": 0, "description": "Sheet label: 'CLIP'." },
         "reload": { "type": ["string", "null"], "description": "Sheet label: 'RLD', e.g. 'Full', '2 Full'." },

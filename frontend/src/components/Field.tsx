@@ -19,6 +19,8 @@ import { FlagPopover } from "./FlagPopover";
 
 const FIT_MAX_PT = 9;
 const FIT_MIN_PT = 5.5;
+/** Below this the box is not laid out yet (or is broken); measuring it would lie. */
+const FIT_MIN_BOX_PX = 12;
 
 /**
  * Shrink an element's font until its text fits, down to a floor.
@@ -26,8 +28,16 @@ const FIT_MIN_PT = 5.5;
  * The paper's boxes are small and fixed; "2d10+2 E" in a damage cell a quarter of a
  * weapon box wide does not fit at body size. Clipping it hides the value, wrapping breaks
  * the row, so the honest option is what a person with a pen would do: write smaller.
+ *
+ * A box narrower than a couple of characters is not a tight fit, it is a layout that has
+ * not settled. Shrinking into it produced the opposite of the intended effect -- every
+ * gear and talent line pinned at the 5.5pt floor because the measurement said 2px -- so
+ * that case is left alone rather than "fitted" to nothing.
  */
 export function fitText(element: HTMLElement, maxPt = FIT_MAX_PT, minPt = FIT_MIN_PT) {
+  element.style.fontSize = "";
+  if (element.clientWidth < FIT_MIN_BOX_PX) return;
+
   let size = maxPt;
   element.style.fontSize = `${size}pt`;
   // scrollWidth reports the full content width of an <input> as well as a block, so the
@@ -38,11 +48,37 @@ export function fitText(element: HTMLElement, maxPt = FIT_MAX_PT, minPt = FIT_MI
   }
 }
 
+/**
+ * Keep an element's text fitted as its value, its box and its font change.
+ *
+ * All three matter. The value is obvious. The box changes when a column is added or the
+ * window is resized. The font changes once, invisibly, when the sheet's handwriting face
+ * finishes loading -- and everything measured before that was measured in a fallback face
+ * of a different width.
+ */
 function useFitText<T extends HTMLElement>(value: string) {
   const ref = useRef<T>(null);
+
   useLayoutEffect(() => {
-    if (ref.current) fitText(ref.current);
+    const element = ref.current;
+    if (!element) return;
+
+    fitText(element);
+
+    const observer = new ResizeObserver(() => fitText(element));
+    observer.observe(element);
+
+    let cancelled = false;
+    void document.fonts?.ready.then(() => {
+      if (!cancelled && ref.current) fitText(ref.current);
+    });
+
+    return () => {
+      cancelled = true;
+      observer.disconnect();
+    };
   }, [value]);
+
   return ref;
 }
 
@@ -73,13 +109,30 @@ interface FieldShellProps {
    * for text and numbers, false for a checkbox, the resting level for a skill.
    */
   clearValue?: unknown;
+  /**
+   * How an accepted reading reaches the document. Defaults to writing it at ``pointer``,
+   * which is right for every control whose pointer holds exactly what it shows. The
+   * special-rules line is the exception: it edits a list through one text input, so a
+   * chosen alternative has to be split rather than written whole.
+   */
+  apply?: (value: unknown, flag: Flag) => void;
 }
 
 /** Wraps a control with its flag badge, popover and highlight state. */
-export function FieldShell({ pointer, children, className, clearValue = null }: FieldShellProps) {
-  const { flagsAt, focusedPointer, printMode } = useSheet();
+export function FieldShell({
+  pointer,
+  children,
+  className,
+  clearValue = null,
+  apply,
+}: FieldShellProps) {
+  const { flagsAt, focusedPointer, printMode, registerField, set } = useSheet();
   const [open, setOpen] = useState(false);
   const element = useRef<HTMLSpanElement>(null);
+
+  // Announce that this pointer has a control, so a flag that names an object -- or a key
+  // inside one -- can still find its way to a field the user can act on.
+  useEffect(() => registerField(pointer), [registerField, pointer]);
 
   const flags = flagsAt(pointer);
   const flagged = flags.length > 0;
@@ -118,7 +171,12 @@ export function FieldShell({ pointer, children, className, clearValue = null }: 
             {severity === "error" ? "!" : "?"}
           </button>
           {open && (
-            <FlagPopover flags={flags} clearValue={clearValue} onClose={() => setOpen(false)} />
+            <FlagPopover
+              flags={flags}
+              apply={apply ?? ((value) => set(pointer, value))}
+              clearValue={clearValue}
+              onClose={() => setOpen(false)}
+            />
           )}
         </>
       )}
@@ -135,6 +193,8 @@ interface TextFieldProps {
   multiline?: boolean;
   className?: string;
   width?: string;
+  /** Visible lines when multiline. The sheet's own boxes want three; a note page wants a page. */
+  rows?: number;
 }
 
 export function TextField({
@@ -144,6 +204,7 @@ export function TextField({
   multiline = false,
   className,
   width,
+  rows = 3,
 }: TextFieldProps) {
   const { get, set, printMode } = useSheet();
   const value = (get<string>(pointer) ?? "") as string;
@@ -171,7 +232,7 @@ export function TextField({
               className={`field__input ${flagged ? "field__input--suggested" : ""}`}
               value={value}
               placeholder={placeholder}
-              rows={3}
+              rows={rows}
               style={{ width }}
               onChange={(event) => set(pointer, event.target.value || null)}
             />

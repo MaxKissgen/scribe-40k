@@ -20,13 +20,12 @@ from ..llm.offline import PassthroughOcr
 from .ingest import IngestResult, PageKind, TextSource, ingest
 from .mapper import map_sheet
 from .report import (
+    Evidence,
     ExtractionReport,
     Flag,
     ModelRef,
     PageRecord,
     SourceRef,
-    UnmappedItem,
-    UnmappedSource,
 )
 from .sections import ALL_SECTIONS, Section
 from .validate import dedupe_flags, validate_document
@@ -93,6 +92,63 @@ def _transcribe(
     return transcribed
 
 
+def _transcribe_extra_pages(
+    result: IngestResult,
+    ocr_provider: OcrProvider,
+) -> dict[int, OcrPage]:
+    """Transcribe the pages that are *not* part of the sheet, keyed by PDF page.
+
+    These are the pages a player attaches to their sheet: session notes, a background
+    write-up, a page of scribbles. They used to be reported as an unassigned fragment
+    reading "(PDF page 6)" -- a way of saying "there was something here" without saying
+    what. Reading them costs one more OCR call per page and turns them into note pages the
+    user can actually see.
+    """
+    pages = [
+        PageImage(pdf_page=p.pdf_page, path=p.image_path, sheet_page=None)
+        for p in result.unrecognised_pages
+        if p.image_path is not None
+    ]
+    if not pages:
+        return {}
+
+    from_layer = [
+        page
+        for page in pages
+        if (ingested := result.page_for_pdf(page.pdf_page))
+        and ingested.text_source is TextSource.TEXT_LAYER
+    ]
+    needs_ocr = [page for page in pages if page not in from_layer]
+
+    transcribed: dict[int, OcrPage] = {}
+    if from_layer:
+        passthrough = PassthroughOcr()
+        passthrough.load_from_ingest(result.pages)
+        for page in passthrough.transcribe(from_layer):
+            transcribed[page.pdf_page] = page
+    if needs_ocr:
+        for page in ocr_provider.transcribe(needs_ocr):
+            transcribed[page.pdf_page] = page
+
+    return transcribed
+
+
+def _note_pages(result: IngestResult, extra: dict[int, OcrPage]) -> list[dict]:
+    """One note page per unrecognised page, in PDF order."""
+    notes = []
+    for page in result.unrecognised_pages:
+        transcription = extra.get(page.pdf_page)
+        text = transcription.text.strip() if transcription and transcription.ok else ""
+        notes.append(
+            {
+                "title": f"From PDF page {page.pdf_page}",
+                "text": text or None,
+                "sourcePdfPage": page.pdf_page,
+            }
+        )
+    return notes
+
+
 def _page_records(result: IngestResult, ocr_pages: dict[int, OcrPage]) -> list[PageRecord]:
     records = []
     for page in result.pages:
@@ -145,18 +201,38 @@ def _structural_flags(result: IngestResult, ocr_pages: dict[int, OcrPage]) -> li
     return flags
 
 
-def _unmapped_pages(result: IngestResult) -> list[UnmappedItem]:
-    """Pages that are not part of the sheet, surfaced instead of dropped."""
-    items = []
-    for page in result.unrecognised_pages:
-        item = UnmappedItem(
-            text=f"(PDF page {page.pdf_page})",
-            source=UnmappedSource(pdfPage=page.pdf_page, location="whole page"),
-            reason=page.note or "this page does not match any page of the character sheet",
+def _note_page_flags(result: IngestResult, notes: list[dict]) -> list[Flag]:
+    """Say where each note page came from, and flag the ones that came out empty.
+
+    A note page is not a problem to be fixed, so this is ``info`` and not a warning. But
+    it should not appear from nowhere either: the user needs to know that PDF page 6 was
+    not part of the sheet and that its text is now here.
+    """
+    flags: list[Flag] = []
+    for index, note in enumerate(notes):
+        pdf_page = note["sourcePdfPage"]
+        page = result.page_for_pdf(pdf_page)
+        reason = (page.note if page else "") or (
+            "it does not match any page of the character sheet"
         )
-        item.ensure_id()
-        items.append(item)
-    return items
+        empty = not note["text"]
+        flags.append(
+            Flag(
+                pointer=f"/notePages/{index}/text",
+                severity="warning" if empty else "info",
+                rule="ingest.note_page",
+                message=(
+                    f"PDF page {pdf_page} is not part of the character sheet ({reason}), "
+                    + (
+                        "and nothing could be read from it. Open the scan to see what is there."
+                        if empty
+                        else "so what was read from it was put on this note page."
+                    )
+                ),
+                evidence=Evidence(pdfPage=pdf_page),
+            )
+        )
+    return flags
 
 
 def extract(
@@ -193,6 +269,13 @@ def extract(
     if cached:
         say(f"  {cached} of {len(ocr_pages)} came from the cache")
 
+    extra_pages = _transcribe_extra_pages(ingested, ocr_provider)
+    if ingested.unrecognised_pages:
+        say(
+            f"  {len(ingested.unrecognised_pages)} page(s) are not part of the sheet; "
+            "transcribing them as note pages"
+        )
+
     say(f"Mapping {len(sections)} section(s)")
     document = blank_character().to_json_dict()
     model_flags, unmapped, records = map_sheet(
@@ -202,11 +285,20 @@ def extract(
         if record.status != "ok":
             say(f"  {record.name}: {record.status} -- {record.error}")
 
+    notes = _note_pages(ingested, extra_pages)
+    document["notePages"] = notes
+
     say("Deriving and validating")
     document, rule_flags = validate_document(document)
 
-    flags = dedupe_flags([*_structural_flags(ingested, ocr_pages), *model_flags, *rule_flags])
-    unmapped = [*unmapped, *_unmapped_pages(ingested)]
+    flags = dedupe_flags(
+        [
+            *_structural_flags(ingested, ocr_pages),
+            *_note_page_flags(ingested, notes),
+            *model_flags,
+            *rule_flags,
+        ]
+    )
 
     report = ExtractionReport(
         source=SourceRef(

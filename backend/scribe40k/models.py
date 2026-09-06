@@ -68,6 +68,24 @@ def _to_int(value: object) -> object:
 Count = Annotated[Annotated[int, Field(ge=0)] | None, BeforeValidator(_to_int)]
 
 
+def _to_distance(value: object) -> object:
+    """Accept the unit a player writes after a range.
+
+    ``RANGE`` is an integer in the schema, but nobody writes a bare number on paper: the
+    sheet says ``100m``, ``60 m``, ``30 metres``. Dropping the unit is lossless -- metres
+    is the only unit the game uses for weapon range -- and it is the difference between a
+    read that lands in the field and one that lands in the review queue.
+    """
+    if isinstance(value, str):
+        stripped = re.sub(r"\s*(m|metres|meters)\.?$", "", value.strip(), flags=re.IGNORECASE)
+        return _to_int(stripped)
+    return _to_int(value)
+
+
+#: A range in metres, tolerant of the unit being written out.
+Distance = Annotated[Annotated[int, Field(ge=0)] | None, BeforeValidator(_to_distance)]
+
+
 class Strict(BaseModel):
     """Base for every sheet object: rejects properties the schema does not define."""
 
@@ -337,7 +355,8 @@ class RangedWeapon(Strict):
     damage: Text = None
     damageType: Text = None
     penetration: Count = None
-    range: Text = None
+    #: Metres. An integer since the schema was tightened; "100m" still parses.
+    range: Distance = None
     #: Text, because of the "S/3/10" notation.
     rateOfFire: Text = None
     clip: Count = None
@@ -498,7 +517,9 @@ class PsychicPower(Strict):
     focusTime: Text = None
     #: Free text rather than boolean: entries such as "Half Action" are common.
     sustained: Text = None
-    range: Text = None
+    #: Metres. A power whose range is a formula ("10 x PR metres") has no integer to
+    #: record; that belongs in ``description``.
+    range: Distance = None
     description: Text = None
 
 
@@ -507,6 +528,27 @@ class Psychic(Strict):
     psychicDiscipline: Text = None
     minorPowers: list[MinorPower] = Field(default_factory=list)
     powers: list[PsychicPower] = Field(default_factory=list)
+
+
+# --------------------------------------------------------------------------------------
+# note pages
+# --------------------------------------------------------------------------------------
+
+
+class NotePage(Strict):
+    """A page of free text that is not part of the printed form.
+
+    Players attach things to a character sheet that the form has no box for: session
+    notes, a background write-up, a page of scribbles. The pipeline used to report such a
+    page as an unassigned fragment reading "(PDF page 6)", which is a way of saying "there
+    was something here" without saying what. A note page holds the actual text.
+    """
+
+    title: Text = None
+    text: Text = None
+    #: Set when the page was transcribed from the uploaded PDF, so the reviewer can put it
+    #: beside the scan it came from. Null for a page the user added by hand.
+    sourcePdfPage: Annotated[int | None, BeforeValidator(_to_int)] = Field(default=None, ge=1)
 
 
 # --------------------------------------------------------------------------------------
@@ -530,6 +572,9 @@ class CharacterSheet(Strict):
     weaponTraining: WeaponTraining
     advances: Advances
     psychic: Psychic
+    #: Not in the schema's ``required`` list: a character written before note pages
+    #: existed is still valid, and gains an empty list the first time it is saved.
+    notePages: list[NotePage] = Field(default_factory=list)
 
     def to_json_dict(self) -> dict:
         """Serialise for ``character.json``, using schema property names throughout."""

@@ -15,12 +15,23 @@ import type { Flag } from "../types";
 interface Props {
   flags: Flag[];
   onClose: () => void;
+  /**
+   * Puts an accepted reading into the document.
+   *
+   * Supplied by the control rather than derived from the flag, because a flag does not
+   * always name a field: uncertainty about a whole specialisation arrives on
+   * `/skills/commonLore/specialisations/1`, an object, while the input that can answer it
+   * is `.../1/subject`. Writing a string to the object is refused by the server and the
+   * correction is lost -- which is exactly what "other readings only clear the badge"
+   * looked like from the outside.
+   */
+  apply: (value: unknown, flag: Flag) => void;
   /** What "clear it" writes into the field; supplied by the control that owns it. */
   clearValue?: unknown;
 }
 
-export function FlagPopover({ flags, onClose, clearValue = null }: Props) {
-  const { id, set, resolveFlag } = useSheet();
+export function FlagPopover({ flags, onClose, apply, clearValue = null }: Props) {
+  const { id, get, resolveFlag } = useSheet();
   const element = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -58,7 +69,7 @@ export function FlagPopover({ flags, onClose, clearValue = null }: Props) {
                 type="button"
                 className="popover__inline-action"
                 onClick={() => {
-                  set(flag.pointer, flag.expected);
+                  apply(flag.expected, flag);
                   void resolveFlag(flag, "user_fixed");
                   onClose();
                 }}
@@ -76,30 +87,19 @@ export function FlagPopover({ flags, onClose, clearValue = null }: Props) {
             <Evidence pdfPage={flag.evidence.pdfPage} bbox={flag.evidence.bbox} id={id} />
           )}
 
-          {flag.alternatives.length > 0 && (
-            <div className="popover__alternatives">
-              <span className="popover__meta">Other readings:</span>
-              {flag.alternatives.map((alternative) => (
-                <button
-                  key={alternative}
-                  type="button"
-                  className="popover__alternative"
-                  onClick={() => {
-                    set(flag.pointer, alternative);
-                    void resolveFlag(flag, "user_fixed");
-                    onClose();
-                  }}
-                >
-                  {alternative}
-                </button>
-              ))}
-            </div>
-          )}
+          <Alternatives flag={flag} current={get(flag.pointer)}>
+            {(alternative) => {
+              apply(alternative, flag);
+              void resolveFlag(flag, "user_fixed");
+              onClose();
+            }}
+          </Alternatives>
 
           <div className="popover__actions">
             <button
               type="button"
               className="popover__action popover__action--accept"
+              title="The value in the field is right. Stop asking about it."
               onClick={() => {
                 void resolveFlag(flag, "accepted");
                 onClose();
@@ -112,22 +112,12 @@ export function FlagPopover({ flags, onClose, clearValue = null }: Props) {
               className="popover__action popover__action--clear"
               title="The extractor read something that is not there. Empty the field."
               onClick={() => {
-                set(flag.pointer, clearValue);
+                apply(clearValue, flag);
                 void resolveFlag(flag, "user_fixed");
                 onClose();
               }}
             >
               Wrong — clear it
-            </button>
-            <button
-              type="button"
-              className="popover__action"
-              onClick={() => {
-                void resolveFlag(flag, "dismissed");
-                onClose();
-              }}
-            >
-              Not a problem
             </button>
           </div>
         </div>
@@ -174,5 +164,48 @@ function Evidence({
         alt={`The scanned sheet around this field, page ${pdfPage}`}
       />
     </a>
+  );
+}
+
+/**
+ * The readings the extractor considered, minus the one already in the document.
+ *
+ * Models return their own answer among the alternatives, and often twice: eighteen of the
+ * thirty flags on the calibration sheet led with the value the field already held.
+ * Offering "Electro Space" as an *other* reading of a field reading "Electro Space" is
+ * how a button that does nothing gets built -- it looked like clicking a suggestion only
+ * cleared the badge, when in truth there was nothing to apply.
+ *
+ * Compared against the value at the *flag's* pointer, not the control's: a flag on one
+ * special rule is about that rule, even though the input holds the whole line.
+ */
+function Alternatives({
+  flag,
+  current,
+  children,
+}: {
+  flag: Flag;
+  current: unknown;
+  children: (alternative: string) => void;
+}) {
+  const shown = [...new Set(flag.alternatives)].filter(
+    (alternative) => alternative !== String(current ?? ""),
+  );
+  if (shown.length === 0) return null;
+
+  return (
+    <div className="popover__alternatives">
+      <span className="popover__meta">Other readings:</span>
+      {shown.map((alternative) => (
+        <button
+          key={alternative}
+          type="button"
+          className="popover__alternative"
+          onClick={() => children(alternative)}
+        >
+          {alternative}
+        </button>
+      ))}
+    </div>
   );
 }

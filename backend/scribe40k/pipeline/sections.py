@@ -165,8 +165,8 @@ Each characteristic is a circle with a two-digit number written in it, and a row
 small boxes labelled "Characteristic Advances" underneath.
 
   * "total" is the number written *in the circle*. This is the value that matters.
-  * "advancesTaken" is how many of the four boxes are ticked, 0 to 4. Not the number
-    inside them -- the count of marked ones.
+  * "advancesTaken" is how many of the four boxes below the circle are ticked, 0 to 4.
+    Not the number inside them -- the count of marked ones.
   * "base" is the starting value before advances, only if it is written separately.
     Usually it is not: leave it null rather than back-calculating it.
 
@@ -334,10 +334,19 @@ The sheet prints {K.PRINTED_CAPACITY["weapons.ranged"]} ranged and
 {K.PRINTED_CAPACITY["gear"]} gear rows. Include only boxes and rows that have something
 written in them; skip the empty ones rather than emitting nulls for them.
 
-WEAPONS. Every text field is a string, even when the player wrote only a number: "range"
-is "60" (or "60m"), never the number 60. "damageType" is a single letter: E energy,
-I impact, R rending, X explosive. "rateOfFire" stays as text because of notation like
-"S/3/10". "specialRules" is the comma-separated text split into separate strings.
+WEAPONS. Three fields are numbers and the rest are text. "range", "penetration" and
+"clip" are plain integers: a sheet reading "60m" gives 60, and one reading "-" or "N/A"
+gives null. Everything else is a string, even when only a number is written.
+
+"damage" is the dice expression as written -- a number of dice, a die size and any bonus,
+e.g. "1d10+3" or "2d10+2". If the transcription lost the "d" ("7 to 8", "7d/0", "1010+3"),
+read it from the image; a damage field that is not of that shape is almost always a
+misread. Keep the damage type out of it: "1d10+3 E" is "damage": "1d10+3" with
+"damageType": "E". "damageType" is a single letter: E energy, I impact, R rending,
+X explosive. "rateOfFire" stays text because of notation like "S/3/10", and it is a
+separate field from "damage" -- if you find yourself putting "S/2/4" in "damage", it
+belongs in "rateOfFire". "specialRules" is the comma-separated text split into separate
+strings.
 Players often add a count or a weight after a weapon's name -- "(x5)", "(wt 0.5)". Those
 are not part of the name: give the clean name, and put each such annotation in
 "unmapped" with the weapon it belongs to.
@@ -440,7 +449,10 @@ are filled in afterwards -- do not copy them. The eight blank lines below the ta
 write-in powers: those get "isCustom": true and whatever values are written.
 
 The "POWER" boxes -- six on page 4, twelve on page 5 -- are free-form. Include only boxes
-with something written in them.
+with something written in them. Two of their fields are numbers: "threshold" and "range",
+both plain integers ("30m" gives 30). A range written as a formula rather than a distance
+-- "10 x PR metres" is the common one -- has no integer to record: leave "range" null and
+put the formula in "description".
 
 One warning from a real sheet: players sometimes reuse these boxes for something else
 entirely, such as a list of implants, and write their own heading above the block. If the

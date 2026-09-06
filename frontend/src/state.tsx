@@ -49,18 +49,33 @@ interface SheetContextValue {
   /** Edit the value at a pointer. Applied at once, saved shortly after. */
   set: (pointer: string, value: unknown) => void;
 
-  /** Open flags on this exact field. */
+  /** Open flags this field is answerable for. */
   flagsAt: (pointer: string) => Flag[];
   /** Open flags on this field or anything beneath it, for section-level badges. */
   flagsUnder: (prefix: string) => Flag[];
 
+  /**
+   * Tell the sheet that a control exists at this pointer. Returns the unregister.
+   *
+   * This is what lets a flag find a field even when it does not name one exactly: the
+   * extractor reports uncertainty about `/skills/commonLore/specialisations/1`, an object,
+   * and the control that can answer for it is the `.../1/subject` input.
+   */
+  registerField: (pointer: string) => () => void;
+  /** The field a flag is shown on and writes to, or null if the sheet has none. */
+  anchorOf: (flag: Flag) => string | null;
+
   openFlags: Flag[];
+  /** Open flags with no field to show them on. Otherwise they would be unfixable. */
+  orphanFlags: Flag[];
   reviewCount: number;
   resolveFlag: (flag: Flag, status: FlagStatus) => Promise<void>;
 
   tray: UnmappedItem[];
   assignFragment: (item: UnmappedItem, pointer: string) => Promise<void>;
   dismissFragment: (item: UnmappedItem) => Promise<void>;
+  /** Turn a fragment into a note page, or start an empty one. */
+  addNotePage: (item?: UnmappedItem) => Promise<void>;
 
   /** The field the review bar has jumped to, highlighted until focus moves on. */
   focusedPointer: string | null;
@@ -194,24 +209,65 @@ export function SheetProvider({
     [character],
   );
 
-  // Index once per report change rather than scanning per field per render.
-  const flagIndex = useMemo(() => {
-    const index = new Map<string, Flag[]>();
-    for (const flag of report?.flags ?? []) {
-      if (flag.status !== "needs_review") continue;
-      const existing = index.get(flag.pointer);
-      if (existing) existing.push(flag);
-      else index.set(flag.pointer, [flag]);
+  // Which pointers actually have a control on screen. Reference-counted, because two
+  // controls can legitimately share one (a value and its printed twin during export).
+  const fields = useRef(new Map<string, number>());
+  const [fieldsVersion, setFieldsVersion] = useState(0);
+  const versionBump = useRef<number | null>(null);
+
+  const registerField = useCallback((pointer: string) => {
+    fields.current.set(pointer, (fields.current.get(pointer) ?? 0) + 1);
+    // Mounting a page registers hundreds of pointers; re-indexing on each one would be
+    // hundreds of renders. One bump per batch is enough.
+    if (versionBump.current === null) {
+      versionBump.current = window.setTimeout(() => {
+        versionBump.current = null;
+        setFieldsVersion((value) => value + 1);
+      }, 0);
     }
-    return index;
-  }, [report]);
+    return () => {
+      const count = (fields.current.get(pointer) ?? 1) - 1;
+      if (count > 0) fields.current.set(pointer, count);
+      else fields.current.delete(pointer);
+    };
+  }, []);
 
   const openFlags = useMemo(
     () => (report?.flags ?? []).filter((flag) => flag.status === "needs_review"),
     [report],
   );
 
+  // Where each open flag is shown. Most name their own field; the ones that do not are
+  // the reason this exists, and the ones that match nothing at all have to be surfaced
+  // some other way rather than silently held open forever.
+  const anchors = useMemo(() => {
+    void fieldsVersion;
+    const present = fields.current;
+    const all = [...present.keys()];
+    const map = new Map<Flag, string | null>();
+    for (const flag of openFlags) map.set(flag, findAnchor(flag.pointer, present, all));
+    return map;
+  }, [openFlags, fieldsVersion]);
+
+  const flagIndex = useMemo(() => {
+    const index = new Map<string, Flag[]>();
+    for (const [flag, anchor] of anchors) {
+      if (anchor === null) continue;
+      const existing = index.get(anchor);
+      if (existing) existing.push(flag);
+      else index.set(anchor, [flag]);
+    }
+    return index;
+  }, [anchors]);
+
+  const orphanFlags = useMemo(
+    () => openFlags.filter((flag) => anchors.get(flag) === null),
+    [openFlags, anchors],
+  );
+
   const flagsAt = useCallback((pointer: string) => flagIndex.get(pointer) ?? [], [flagIndex]);
+
+  const anchorOf = useCallback((flag: Flag) => anchors.get(flag) ?? null, [anchors]);
 
   const flagsUnder = useCallback(
     (prefix: string) => openFlags.filter((flag) => flag.pointer.startsWith(prefix)),
@@ -266,6 +322,16 @@ export function SheetProvider({
     [id],
   );
 
+  const addNotePage = useCallback(
+    async (item?: UnmappedItem) => {
+      await flush();
+      const payload = await api.addNotePage(id, item ? { fromUnmapped: item.id } : {});
+      setCharacter(payload.character);
+      setReport(payload.report);
+    },
+    [id, flush],
+  );
+
   const value: SheetContextValue = {
     id,
     character,
@@ -275,12 +341,16 @@ export function SheetProvider({
     set,
     flagsAt,
     flagsUnder,
+    registerField,
+    anchorOf,
     openFlags,
+    orphanFlags,
     reviewCount: openFlags.length,
     resolveFlag,
     tray,
     assignFragment,
     dismissFragment,
+    addNotePage,
     focusedPointer,
     focusPointer: setFocusedPointer,
     saveState,
@@ -290,4 +360,41 @@ export function SheetProvider({
   };
 
   return <SheetContext.Provider value={value}>{children}</SheetContext.Provider>;
+}
+
+/**
+ * The field that answers for a flag.
+ *
+ * Extractors do not always name a leaf. A low-confidence reading of a whole
+ * specialisation arrives as `/skills/commonLore/specialisations/1`; a schema error about
+ * a missing key arrives on the object that lacks it. Neither has a control of its own,
+ * and a flag with no control is a flag the user can see the count of and never clear.
+ *
+ * So: the field itself if there is one, else the nearest control above it, else the first
+ * control inside it. Null means the sheet genuinely has nowhere to put it -- a flag about
+ * the document as a whole, or one left over from a row that has since been deleted.
+ */
+function findAnchor(
+  pointer: string,
+  present: Map<string, number>,
+  all: string[],
+): string | null {
+  if (present.has(pointer)) return pointer;
+  if (pointer === "") return null;
+
+  for (let cut = pointer.lastIndexOf("/"); cut > 0; cut = pointer.lastIndexOf("/", cut - 1)) {
+    const ancestor = pointer.slice(0, cut);
+    if (present.has(ancestor)) return ancestor;
+  }
+
+  // Shallowest first, so a flag on a gear row lands on its name rather than its notes.
+  let best: string | null = null;
+  const prefix = `${pointer}/`;
+  for (const candidate of all) {
+    if (!candidate.startsWith(prefix)) continue;
+    if (best === null) best = candidate;
+    else if (candidate.length < best.length) best = candidate;
+    else if (candidate.length === best.length && candidate < best) best = candidate;
+  }
+  return best;
 }

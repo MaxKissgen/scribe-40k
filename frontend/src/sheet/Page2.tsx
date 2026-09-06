@@ -6,7 +6,7 @@
  * page, but nothing caps at them.
  */
 
-import { Checkbox, NumberField, TextField } from "../components/Field";
+import { Checkbox, FieldShell, NumberField, TextField } from "../components/Field";
 import { Repeat } from "../components/Repeat";
 import { ptr } from "../pointer";
 import { useSheet } from "../state";
@@ -120,6 +120,11 @@ function MeleeWeapon({ base }: { base: string }) {
 /**
  * The schema stores special rules split into separate strings; the sheet prints them as
  * one comma-separated line. Editing the line and splitting on save keeps both true.
+ *
+ * Flag-aware like every other control, because the extractor is routinely unsure about
+ * these -- "BCoil" for "B-Coil", "pre-damp" for "pre-dampener". Those flags name an
+ * individual rule (`.../specialRules/0`) and used to have no control to appear on, so
+ * they sat in the review count with nowhere to go.
  */
 function SpecialRules({ pointer }: { pointer: string }) {
   const { get, set, printMode } = useSheet();
@@ -135,24 +140,44 @@ function SpecialRules({ pointer }: { pointer: string }) {
     );
   }
 
+  const split = (value: string) =>
+    value
+      .split(",")
+      .map((rule) => rule.trim())
+      .filter(Boolean);
+  const write = (value: string) => set(pointer, split(value));
+
   return (
-    <span className="field weapon__rules">
-      <label className="field__label">Special Rules</label>
-      <input
-        type="text"
-        className="field__input"
-        value={text}
-        onChange={(event) =>
-          set(
-            pointer,
-            event.target.value
-              .split(",")
-              .map((rule) => rule.trim())
-              .filter(Boolean),
-          )
+    <FieldShell
+      pointer={pointer}
+      className="weapon__rules"
+      clearValue={[]}
+      // A flag here names one rule -- `.../specialRules/0` -- while the input holds the
+      // whole comma-separated line. Replacing the line with the chosen reading would
+      // delete the rules either side of it, so the named one is replaced in place.
+      apply={(value, flag) => {
+        if (Array.isArray(value)) return set(pointer, value);
+        const index = Number(flag.pointer.slice(pointer.length + 1));
+        if (!Number.isInteger(index) || index >= rules.length) {
+          return set(pointer, split(String(value ?? "")));
         }
-      />
-    </span>
+        const next = [...rules];
+        next[index] = String(value ?? "");
+        set(pointer, next.filter(Boolean));
+      }}
+    >
+      {({ flagged }) => (
+        <>
+          <label className="field__label">Special Rules</label>
+          <input
+            type="text"
+            className={`field__input ${flagged ? "field__input--suggested" : ""}`}
+            value={text}
+            onChange={(event) => write(event.target.value)}
+          />
+        </>
+      )}
+    </FieldShell>
   );
 }
 

@@ -80,6 +80,15 @@ class CreateRequest(BaseModel):
     name: str | None = None
 
 
+class NotePageRequest(BaseModel):
+    """A new free-text page, optionally seeded from an unassigned fragment."""
+
+    title: str | None = None
+    text: str | None = None
+    #: When given, that fragment's text becomes the page's text and it leaves the tray.
+    fromUnmapped: str | None = None
+
+
 # --------------------------------------------------------------------------------------
 # Helpers
 # --------------------------------------------------------------------------------------
@@ -103,7 +112,17 @@ def _save_and_revalidate(character_id: str, document: dict) -> dict:
     """
     finished, rule_flags = validate_document(document)
     store.save(character_id, finished)
+    _refresh_rule_flags(character_id, rule_flags)
+    return finished
 
+
+def _refresh_rule_flags(character_id: str, rule_flags: list) -> bool:
+    """Replace the recomputable flags with a freshly computed set.
+
+    Returns whether anything changed. Rule flags are derived state: keeping a stale one
+    around means the user is asked to fix something that is already fixed, and -- worse --
+    that the count never reaches zero however much they correct.
+    """
     # A character created by hand has no report yet, but its values still deserve
     # checking, so one is started here rather than only on import.
     report = _report_or_empty(character_id) or ExtractionReport()
@@ -114,10 +133,14 @@ def _save_and_revalidate(character_id: str, document: dict) -> dict:
     kept = [f for f in report.flags if not _is_rule_flag(f.rule)]
     for flag in rule_flags:
         flag.status = resolved.get((flag.pointer, flag.rule), "needs_review")
-    report.flags = dedupe_flags([*kept, *rule_flags])
-    store.save_report(character_id, report)
 
-    return finished
+    before = [f.model_dump() for f in report.flags]
+    report.flags = dedupe_flags([*kept, *rule_flags])
+    if [f.model_dump() for f in report.flags] == before:
+        return False
+
+    store.save_report(character_id, report)
+    return True
 
 
 def _is_rule_flag(rule: str) -> bool:
@@ -153,7 +176,19 @@ def create_character(body: CreateRequest) -> dict:
 
 @app.get("/api/characters/{character_id}")
 def get_character(character_id: str) -> dict:
-    return _payload(character_id, _require(character_id))
+    """Load a character, re-running the rules that produce its flags.
+
+    Opening a sheet recomputes them because they are derived from the document, and a
+    document can become valid without the editor touching it -- a schema tightened, a
+    model corrected, a fix made from the CLI. A report saved before any of that would
+    show errors that no longer exist and that nothing on screen can clear.
+    """
+    document = _require(character_id)
+    finished, rule_flags = validate_document(document)
+    if finished != document:
+        store.save(character_id, finished)
+    _refresh_rule_flags(character_id, rule_flags)
+    return _payload(character_id, finished)
 
 
 @app.put("/api/characters/{character_id}")
@@ -250,6 +285,49 @@ def update_unmapped(character_id: str, body: UnmappedUpdate) -> dict:
     store.save_report(character_id, report)
 
     return _payload(character_id, store.load(character_id))
+
+
+@app.post("/api/characters/{character_id}/note-pages", status_code=201)
+def add_note_page(character_id: str, body: NotePageRequest) -> dict:
+    """Append a free-text page.
+
+    Exists as its own endpoint rather than as a pointer edit because the useful version of
+    this is one action: a fragment in the tray that belongs in prose rather than in a
+    field becomes a note page and leaves the tray together, with no window in which the
+    page exists and the fragment is still queued.
+    """
+    document = _require(character_id)
+    report = _report_or_empty(character_id)
+
+    item = None
+    if body.fromUnmapped:
+        if report is None:
+            raise HTTPException(404, "this character has no extraction report")
+        item = next((u for u in report.unmapped if u.id == body.fromUnmapped), None)
+        if item is None:
+            raise HTTPException(404, f"no unassigned fragment '{body.fromUnmapped}'")
+
+    pages = document.setdefault("notePages", [])
+    index = len(pages)
+    pages.append(
+        {
+            "title": body.title or (item.source.location if item else None),
+            "text": body.text or (item.text if item else None),
+            "sourcePdfPage": item.source.pdfPage if item else None,
+        }
+    )
+
+    finished = _save_and_revalidate(character_id, document)
+
+    if item is not None:
+        # Reload: _save_and_revalidate rewrote the report underneath us.
+        report = _report_or_empty(character_id)
+        stored = next(u for u in report.unmapped if u.id == body.fromUnmapped)
+        stored.status = "assigned"
+        stored.assignedTo = f"/notePages/{index}/text"
+        store.save_report(character_id, report)
+
+    return _payload(character_id, finished)
 
 
 # --------------------------------------------------------------------------------------

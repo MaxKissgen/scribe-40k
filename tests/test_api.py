@@ -152,14 +152,16 @@ class TestFlags:
             ),
         )
 
-        assert client.get(f"/api/characters/{character}").json()["reviewCount"] == 1
+        # A blank character raises rule flags of its own (no name, no wounds), so the
+        # count is measured as a delta rather than assumed to start at one.
+        before = client.get(f"/api/characters/{character}").json()["reviewCount"]
 
         response = client.post(
             f"/api/characters/{character}/flags",
             json={"pointer": "/bio/career", "rule": "model.low_confidence", "status": "accepted"},
         )
 
-        assert response.json()["reviewCount"] == 0
+        assert response.json()["reviewCount"] == before - 1
 
     def test_a_resolved_flag_does_not_come_back_after_an_edit(self, client, character) -> None:
         """Re-running the rules must not resurrect what the user already dismissed."""
@@ -417,3 +419,125 @@ class TestPageImages:
             params={"x0": 100, "y0": 100, "x1": 50, "y1": 50},
         )
         assert response.status_code == 400
+
+
+class TestStaleFlags:
+    """A rule flag is derived state, and must not outlive what it describes.
+
+    On the calibration character nine schema errors survived every correction the user
+    could make on screen, because they were computed at import time against a document
+    that no longer existed and nothing recomputed them until the next edit.
+    """
+
+    def test_opening_a_character_drops_a_flag_that_no_longer_applies(
+        self, client, character
+    ) -> None:
+        import scribe40k.api as api
+
+        api.store.save_report(
+            character,
+            _report_with(
+                flags=[
+                    Flag(
+                        pointer="/skills/commonLore/specialisations/0/proficiency",
+                        severity="error",
+                        rule="schema.required",
+                        message="'modifier' is a required property",
+                    )
+                ]
+            ),
+        )
+
+        report = client.get(f"/api/characters/{character}").json()["report"]
+
+        assert not [f for f in report["flags"] if f["rule"] == "schema.required"]
+
+    def test_a_model_flag_is_not_recomputable_and_survives(self, client, character) -> None:
+        """Only what the rules can regenerate may be thrown away."""
+        import scribe40k.api as api
+
+        api.store.save_report(
+            character,
+            _report_with(
+                flags=[
+                    Flag(
+                        pointer="/bio/career",
+                        severity="warning",
+                        rule="model.low_confidence",
+                        message="unsure",
+                    )
+                ]
+            ),
+        )
+
+        report = client.get(f"/api/characters/{character}").json()["report"]
+
+        assert [f["rule"] for f in report["flags"] if f["pointer"] == "/bio/career"] == [
+            "model.low_confidence"
+        ]
+
+    def test_a_resolved_flag_stays_resolved_across_an_open(self, client, character) -> None:
+        """Recomputing must not undo the user's judgement."""
+        client.get(f"/api/characters/{character}")  # raises the rule flags in the first place
+        accepted = client.post(
+            f"/api/characters/{character}/flags",
+            json={
+                "pointer": "/wounds/totalWounds",
+                "rule": "wounds.missing_total",
+                "status": "accepted",
+            },
+        )
+        assert accepted.status_code == 200
+
+        report = client.get(f"/api/characters/{character}").json()["report"]
+        wounds = next(f for f in report["flags"] if f["rule"] == "wounds.missing_total")
+
+        assert wounds["status"] == "accepted"
+
+
+class TestNotePages:
+    def test_a_note_page_can_be_added(self, client, character) -> None:
+        response = client.post(
+            f"/api/characters/{character}/note-pages",
+            json={"title": "Session 4", "text": "Owed 200 thrones to Vex."},
+        )
+
+        assert response.status_code == 201
+        assert response.json()["character"]["notePages"] == [
+            {"title": "Session 4", "text": "Owed 200 thrones to Vex.", "sourcePdfPage": None}
+        ]
+
+    def test_a_fragment_becomes_a_note_page_and_leaves_the_tray(self, client, character) -> None:
+        import scribe40k.api as api
+
+        item = UnmappedItem(
+            text="Rescued the astropath from the hab-block.",
+            source=UnmappedSource(pdfPage=10, location="page 10, whole page"),
+        )
+        item.ensure_id()
+        api.store.save_report(character, _report_with(unmapped=[item]))
+
+        payload = client.post(
+            f"/api/characters/{character}/note-pages",
+            json={"fromUnmapped": item.id},
+        ).json()
+
+        [page] = payload["character"]["notePages"]
+        assert page["text"] == "Rescued the astropath from the hab-block."
+        assert page["sourcePdfPage"] == 10
+
+        [stored] = payload["report"]["unmapped"]
+        assert stored["status"] == "assigned"
+        assert stored["assignedTo"] == "/notePages/0/text"
+
+    def test_an_unknown_fragment_is_rejected(self, client, character) -> None:
+        import scribe40k.api as api
+
+        api.store.save_report(character, _report_with())
+
+        response = client.post(
+            f"/api/characters/{character}/note-pages",
+            json={"fromUnmapped": "nosuchthing"},
+        )
+
+        assert response.status_code == 404

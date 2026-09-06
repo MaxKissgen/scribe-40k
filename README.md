@@ -75,13 +75,21 @@ transcribes them, maps six sections in parallel and opens the result in the edit
 The bar at the top says how many fields need review. **Next ›** jumps to each in turn,
 scrolls it into view and opens its explanation — the model's confidence, the text it read,
 alternative readings you can apply with one click, and a crop of that part of the scan.
-**Keep as is** or **Not a problem** clears the flag.
+**Keep as is** settles it; **Wrong — clear it** empties the field.
+
+Flags that are not about any one field — a page that could not be transcribed, a reading
+of a row you have since deleted — are listed under the bar, where they can be dismissed.
+Nothing counted can be unreachable.
 
 **N unassigned** opens the tray: text found on the sheet that no field could hold —
-marginal notes, values written outside their boxes, whole pages that are not part of the
-sheet. Give one a field to go in, or dismiss it.
+marginal notes, values written outside their boxes. Give one a field to go in, send it
+**to a note page** if it is prose rather than a value, or dismiss it.
 
-**Export PDF** prints the sheet.
+**Note pages** come after the sheet: free text with no boxes, for what players write on
+loose paper. Pages of the upload that are not part of the form are transcribed onto them
+automatically, and you can add your own.
+
+**Export PDF** prints the sheet, note pages included.
 
 ### From the command line
 
@@ -178,16 +186,29 @@ of the transcription: where the model claims more marks than the transcription s
 level is brought down and the model's reading is kept as a one-click alternative on the
 flag.
 
-**A flag has three answers.** *Keep as is* accepts the value, *Wrong — clear it* empties
-the field (a text field to blank, a checkbox to unticked, a skill to its resting level),
-*Not a problem* dismisses the flag without touching the value.
+**A flag has two answers.** *Keep as is* accepts the value; *Wrong — clear it* empties the
+field (a text field to blank, a checkbox to unticked, a skill to its resting level). Both
+take the flag out of the count. An offered alternative reading applies it instead.
+
+**A flag finds a field even when it does not name one.** Extractors report uncertainty at
+whatever granularity they read: a whole specialisation, one entry of a list, sometimes the
+document. A flag is shown on the control that can answer it — the field itself, else the
+nearest one above it, else the first one inside it — and what the user picks is written
+there rather than at the flag's own pointer. What still matches nothing is listed under
+the review bar rather than left in the count with nowhere to go.
+
+**Flags are recomputed when a sheet is opened.** Everything the rules produce is derived
+from the document, so it is regenerated rather than remembered; only a model's own
+uncertainty, which cannot be recomputed, is carried forward. Your accepted and dismissed
+answers survive both.
 
 **Inconsistencies are flagged, not corrected.** A total that disagrees with base + advances
 may be an implant; movement that disagrees with Agility may be a modifier. The sheet keeps
 what was written on it and asks you.
 
 **Nothing read from the paper is dropped.** Whatever the mapper cannot place goes to the
-assignment tray with its source page.
+assignment tray with its source page, and a page of the upload that is not part of the
+form is transcribed onto a note page rather than reported as "(PDF page 10)".
 
 **Sections are expandable.** The printed line counts (21 gear lines, 3 ranged weapons, 18
 power boxes) are a starting shape, not a limit. Content past them continues onto a
@@ -229,8 +250,9 @@ provider then replays them with no API calls, which is how the mapping stage is 
   that cannot be redistributed; EB Garamond and Tinos stand in. Drop a licensed
   `ColumbusMT` into `assets/fonts/` and point `--font-display` at it for an exact match.
 - **Checkbox recall depends on a vision-capable reasoning model**, as above.
-- **The character schema is treated as fixed.** Content with nowhere to go — the sample's
-  session notes, for instance — lives in the report sidecar, not in `character.json`.
+- **Values are fitted to the paper by shrinking, down to 5.5pt.** A gear name longer than
+  its printed line gets smaller rather than clipped, which is what a person with a pen
+  would do; past the floor it is clipped after all.
 - Copyrighted source PDFs are gitignored. Only derived, non-reproducible assets (the
   armour stencil, the page fingerprints) are committed.
 

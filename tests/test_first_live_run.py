@@ -146,14 +146,24 @@ class TestMisplacedAdditionalSkills:
 
 class TestPartialFragmentsFromLiveModels:
     def test_a_number_in_a_text_field_is_accepted_as_text(self) -> None:
-        """'RANGE 60' came back as the integer 60 and failed the schema."""
-        weapon = RangedWeapon.model_validate({"range": 60, "damage": 7, "reload": 2.0})
+        """A damage of '7' came back as the integer 7 and failed the schema."""
+        weapon = RangedWeapon.model_validate({"damage": 7, "reload": 2.0})
 
-        assert (weapon.range, weapon.damage, weapon.reload) == ("60", "7", "2")
+        assert (weapon.damage, weapon.reload) == ("7", "2")
 
     def test_a_bool_in_a_text_field_still_fails(self) -> None:
         with pytest.raises(ValidationError):
-            RangedWeapon.model_validate({"range": True})
+            RangedWeapon.model_validate({"damage": True})
+
+    def test_a_range_keeps_its_number_and_loses_its_unit(self) -> None:
+        """RANGE became an integer in the schema; players still write '60m'."""
+        assert RangedWeapon.model_validate({"range": 60}).range == 60
+        assert RangedWeapon.model_validate({"range": "60m"}).range == 60
+        assert RangedWeapon.model_validate({"range": "30 metres"}).range == 30
+
+    def test_a_range_that_is_not_a_distance_still_fails(self) -> None:
+        with pytest.raises(ValidationError):
+            RangedWeapon.model_validate({"range": "10 x PR metres"})
 
     def test_a_specialisation_without_proficiency_defaults_to_trained(self) -> None:
         assert SkillSpecialisation.model_validate({"subject": "Tech"}).proficiency.level == (
@@ -169,7 +179,7 @@ class TestPartialFragmentsFromLiveModels:
             {
                 "characteristics": {"agility": {"total": 28}},
                 "skills": {"commonLore": {"specialisations": [{"subject": "Imperium"}]}},
-                "weapons": {"ranged": [{"name": "Las pistol", "range": 60}]},
+                "weapons": {"ranged": [{"name": "Las pistol", "range": "60m"}]},
             },
         )
 
@@ -177,7 +187,7 @@ class TestPartialFragmentsFromLiveModels:
 
         assert not any(f.rule == "document.unparseable" for f in flags)
         assert finished["characteristics"]["agility"]["bonus"] == 2, "derivations ran"
-        assert finished["weapons"]["ranged"][0]["range"] == "60"
+        assert finished["weapons"]["ranged"][0]["range"] == 60
         CharacterSheet.model_validate(finished)
 
 
@@ -236,3 +246,38 @@ class TestRowsWithTheirTextInTheWrongCell:
         assert Characteristic.model_validate({"abbreviation": "WS", "total": "28"}).total == 28
         with pytest.raises(ValidationError):
             Characteristic.model_validate({"abbreviation": "WS", "total": "128"})
+
+
+class TestAnUnloadableDocumentSaysWhy:
+    """A null in a required field used to bury the one real problem under eight fake ones.
+
+    With nothing loaded, nothing is derived, and the schema then objects to every derived
+    key that is consequently missing -- errors about objects the user never touched, which
+    do not go away when they fix the field that actually broke.
+    """
+
+    def _document_with_a_null_gear_name(self) -> dict:
+        document = blank_character().to_json_dict()
+        document["gear"] = [{"name": None, "quantity": None, "notes": None}]
+        return document
+
+    def test_the_blocking_value_is_flagged_where_it_is(self) -> None:
+        _, flags = validate_document(self._document_with_a_null_gear_name())
+
+        blocking = [f for f in flags if f.rule == "document.invalid_value"]
+        assert [f.pointer for f in blocking] == ["/gear/0/name"]
+        assert "valid string" in blocking[0].message
+
+    def test_nothing_else_is_reported(self) -> None:
+        """Only the root summary and the value itself."""
+        _, flags = validate_document(self._document_with_a_null_gear_name())
+
+        assert {f.rule for f in flags} == {"document.unparseable", "document.invalid_value"}
+
+    def test_filling_the_value_clears_every_flag_it_caused(self) -> None:
+        document = self._document_with_a_null_gear_name()
+        document["gear"][0]["name"] = "Lho sticks"
+
+        _, flags = validate_document(document)
+
+        assert not [f for f in flags if f.rule.startswith(("document.", "schema."))]

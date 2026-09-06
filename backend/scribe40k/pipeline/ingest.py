@@ -116,6 +116,10 @@ class IngestResult:
     def page_for(self, sheet_page: int) -> IngestedPage | None:
         return next((p for p in self.pages if p.sheet_page == sheet_page), None)
 
+    def page_for_pdf(self, pdf_page: int) -> IngestedPage | None:
+        """By position in the uploaded file, for the pages that matched no sheet page."""
+        return next((p for p in self.pages if p.pdf_page == pdf_page), None)
+
     @property
     def missing_sheet_pages(self) -> list[int]:
         found = {p.sheet_page for p in self.pages if p.kind is PageKind.SHEET}

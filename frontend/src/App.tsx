@@ -10,6 +10,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { api } from "./api";
 import { ReviewBar } from "./components/ReviewBar";
+import { NotePages } from "./sheet/Notes";
 import { Page1 } from "./sheet/Page1";
 import { Page2 } from "./sheet/Page2";
 import { Page3 } from "./sheet/Page3";
@@ -233,6 +234,7 @@ function Editor({
         <Page2 />
         <Page3 />
         <PsychicPages />
+        <NotePages />
       </div>
     </SheetProvider>
   );

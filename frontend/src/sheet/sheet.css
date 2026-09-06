@@ -1097,19 +1097,37 @@ label.tick input[type="checkbox"] {
   width: 100%;
 }
 
+/*
+ * These rows sit inside `.block`, whose `.block .field { width: 100% }` is meant for the
+ * wide single-field blocks (insanity, corruption, movement). Applied to a row of two or
+ * three fields it made the first one claim the whole row and left the rest with a content
+ * box two pixels wide -- which the auto-fitting then dutifully shrank every gear and
+ * talent name to 5.5pt to fit. Each field in a row is sized by the rules below instead.
+ */
+.named-entry > .field,
+.gear-entry > .field,
+.advance-row > .field {
+  width: auto;
+}
+
 .named-entry__name,
 .gear-entry__name,
 .advance-row__name {
-  flex: 1;
+  flex: 1 1 0;
   min-width: 0;
 }
 
 .named-entry__spec {
-  width: 40%;
+  flex: 0 0 40%;
+  min-width: 0;
 }
 
 .gear-entry__qty {
-  flex: none;
+  flex: 0 0 2.75rem;
+}
+
+.gear-entry__qty .field__input {
+  width: 100%;
 }
 
 .training__columns {
@@ -1476,4 +1494,114 @@ label.tick input[type="checkbox"] {
 .popover__action--clear {
   color: var(--flag-error);
   border-color: var(--flag-error);
+}
+
+/* -- Note pages ------------------------------------------------------------------- */
+
+.page--notes .notes__header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 0.25rem;
+  position: relative;
+}
+
+.page--notes .notes__title {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.notes__source {
+  font-size: 7pt;
+  color: var(--muted, #666);
+  white-space: nowrap;
+}
+
+.page--notes .notes__body {
+  display: block;
+  width: 100%;
+  margin-top: 0.4rem;
+}
+
+/* Free text, not a value on a ruled line: no underline, and room to breathe. */
+.page--notes .notes__body .field__input,
+.page--notes .notes__body .printed__value {
+  display: block;
+  width: 100%;
+  border: none;
+  font-size: 9pt;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow: visible;
+}
+
+/* An untitled note page has no title, rather than a stub of a rule where one would go. */
+.page--notes .notes__title .printed__value:empty {
+  display: none;
+}
+
+.page--notes-add {
+  border: 1px dashed var(--rule);
+  box-shadow: none;
+  background: transparent;
+}
+
+/* -- Flags with no field -----------------------------------------------------------
+ *
+ * Deliberately part of the review bar rather than the sheet: these are the ones that
+ * cannot be shown in place, so the only honest home for them is beside the count that
+ * includes them.
+ */
+
+.orphans {
+  max-width: var(--page-width);
+  margin: 0 auto 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--flag-warning);
+  border-radius: 3px;
+  background: var(--flag-warning-bg);
+}
+
+.orphans__heading {
+  margin: 0 0 0.35rem;
+  font-size: 0.8rem;
+  font-variant: small-caps;
+  letter-spacing: 0.05em;
+}
+
+.orphans__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.orphans__item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas: "message action" "meta action";
+  gap: 0 0.5rem;
+  align-items: center;
+  padding: 0.3rem 0.45rem;
+  background: #fff;
+  border-radius: 2px;
+}
+
+.orphans__message {
+  grid-area: message;
+  margin: 0;
+  font-size: 0.8rem;
+}
+
+.orphans__meta {
+  grid-area: meta;
+  margin: 0;
+  font-size: 0.7rem;
+  color: var(--muted, #666);
+}
+
+.orphans__item button {
+  grid-area: action;
 }

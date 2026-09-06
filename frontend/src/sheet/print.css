@@ -31,7 +31,10 @@
   .repeat__remove,
   .page__expand,
   .advance-block__expand,
-  .movement__hint {
+  .movement__hint,
+  .orphans,
+  .page--notes-add,
+  .notes__source {
     display: none !important;
   }
 
@@ -146,3 +149,15 @@
  * anything after it, so the trailing copyright line was being pushed onto a page of its
  * own. The page breaks between sections are what separate the pages here, not the height.
  */
+
+/*
+ * A note page is prose. It keeps the line breaks the player wrote, and is allowed to run
+ * onto a further sheet rather than being clipped at the page boundary -- a page of
+ * session notes is exactly the thing that will not fit in a fixed box.
+ */
+.sheet--print .page--notes .printed__value--multiline {
+  display: block;
+  white-space: pre-wrap;
+  max-width: 100%;
+  overflow: visible;
+}

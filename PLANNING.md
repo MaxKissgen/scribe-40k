@@ -138,8 +138,11 @@ Deterministic, no LLM spend:
 2. **Template matching** — each candidate page is cropped to its ink bounding box,
    downscaled to a coarse grayscale vector, and correlated against
    `assets/page-fingerprints.json`.
-3. Anything left over becomes an **unrecognised page**, surfaced in the UI rather than
-   silently dropped. The sample's two notes pages land here.
+3. Anything left over becomes an **unrecognised page**. These are transcribed like any
+   other and their text becomes a **note page** on the character, with a flag saying which
+   page of the upload it came from. The sample's two notes pages land here. Reporting them
+   as an unassigned fragment reading "(PDF page 10)" -- which is what this did first -- is
+   a way of saying something was there without saying what.
 
 Three things about this only emerged from building it:
 
@@ -278,9 +281,15 @@ There is no separate review screen. Confirmed behaviour:
 - **Counter + jump-to-next.** A persistent "N fields need review" bar with next / previous
   navigation. Export still works with flags open, but warns first.
 - **Assignment tray.** A docked "found on the sheet, not assigned" panel lists each stray
-  fragment with its source crop. Drag onto a field to use it, or dismiss it. Whatever is left
-  stays in the report sidecar. The sample's marginal `+30 Deceive` and its two notes pages
-  land here.
+  fragment with its source crop. Give it a field to go in, send it to a note page if it is
+  prose rather than a value, or dismiss it. Whatever is left stays in the report sidecar.
+  The sample's marginal `+30 Deceive` lands here.
+- **Flags anchor to the nearest control.** Extractors report uncertainty at whatever
+  granularity they read -- a whole specialisation, one item of a list -- so a flag is shown
+  on the field that can answer it, and an accepted reading is written *there* rather than at
+  the flag's own pointer. A flag matching no control at all is listed under the review bar
+  where it can be dismissed, because a flag in the count with nowhere to go is a count that
+  never reaches zero.
 
 ---
 
@@ -380,7 +389,10 @@ on the CLI. Adding a provider means one new file implementing two protocols.
 - **Typography** is a near-match, not identical, until a licensed `ColumbusMT` is supplied.
 - **Checkbox recall depends on a vision-capable reasoning model.** Text-only configurations
   will under-report ticked skills.
-- The **schema is treated as fixed**. Content with nowhere to go (the sample's session notes)
-  lives in the report sidecar, not in `character.json`.
+- The **schema is otherwise treated as fixed**: it gained one property, `notePages`, for
+  free text the printed form has no box for, because `additionalProperties: false` leaves
+  nowhere else for it to live. `tests/test_schema_parity.py` builds a document in which
+  every leaf carries a value invented from the schema and pushes it through the models,
+  so the two cannot drift apart unnoticed.
 - Copyrighted source PDFs are **gitignored**; only derived, non-reproducible assets are
   committed.

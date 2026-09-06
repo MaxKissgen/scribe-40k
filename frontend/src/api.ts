@@ -82,6 +82,20 @@ export const api = {
       body: JSON.stringify({ pointer, rule, status }),
     }),
 
+  /** Append a free-text page, optionally consuming an unassigned fragment. */
+  addNotePage: (
+    id: string,
+    body: { title?: string; text?: string; fromUnmapped?: string },
+  ) =>
+    request<CharacterPayload>(`/api/characters/${id}/note-pages`, {
+      method: "POST",
+      body: JSON.stringify({
+        title: body.title ?? null,
+        text: body.text ?? null,
+        fromUnmapped: body.fromUnmapped ?? null,
+      }),
+    }),
+
   resolveUnmapped: (
     id: string,
     unmappedId: string,

@@ -74,6 +74,12 @@ export function Repeat<T>({
     const overflow = index >= printedCapacity;
     const placeholder = item === undefined;
 
+    // A row that exists but holds nothing is not content. It printed anyway, and nine of
+    // them in a row stacked their underlines into a solid black bar across the talents
+    // block. It matters more than it used to: touching a placeholder row now creates a
+    // real empty entry, so a sheet accumulates them just by being edited.
+    if (printMode && !printEmptyRows && isBlank(item)) continue;
+
     rows.push(
       <div
         key={index}
@@ -135,4 +141,14 @@ export function padded<T>(items: T[] | undefined, length: number, blank: () => T
   const result = [...(items ?? [])];
   while (result.length < length) result.push(blank());
   return result;
+}
+
+/** True for a row with nothing written in it, at any depth. */
+function isBlank(item: unknown): boolean {
+  if (item === null || item === undefined) return true;
+  if (typeof item === "string") return item.trim() === "";
+  if (typeof item === "boolean") return item === false;
+  if (Array.isArray(item)) return item.every(isBlank);
+  if (typeof item === "object") return Object.values(item).every(isBlank);
+  return false;
 }

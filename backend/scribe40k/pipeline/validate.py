@@ -5,8 +5,9 @@ quite validate is the normal case, not an error condition -- the whole point of 
 step is that a human resolves what the machine could not. Refusing to produce a document
 would leave them nothing to correct.
 
-The one exception is a document so malformed it cannot be loaded into the model at all;
-that is reported as a single error flag on the root.
+A document so malformed it cannot be loaded into the model at all is the one case that
+short-circuits: it gets a flag on the root saying so, and a flag on each value that is
+stopping it, since nothing further can be checked until those are fixed.
 """
 
 from __future__ import annotations
@@ -53,6 +54,28 @@ def schema_flags(document: dict) -> list[Flag]:
 
 def _is_jsonable(value) -> bool:
     return isinstance(value, str | int | float | bool | type(None))
+
+
+def model_error_flags(error: ValidationError) -> list[Flag]:
+    """Flags for the values that stop a document being loaded at all.
+
+    Deliberately *instead of* the schema's own report rather than alongside it. When the
+    models cannot load a document, nothing is derived from it, and the schema then objects
+    to every derived key that is consequently absent -- eight "'modifier' is a required
+    property" errors about objects the user never touched, none of which they can act on
+    and none of which go away when they fix the one field that actually broke. Pydantic
+    knows which value it choked on; that is the one worth showing.
+    """
+    return [
+        Flag(
+            pointer=_pointer_from_path(item["loc"]),
+            severity="error",
+            rule="document.invalid_value",
+            message=f"This value stops the sheet being loaded: {item.get('msg', 'invalid')}.",
+            actual=item.get("input") if _is_jsonable(item.get("input")) else None,
+        )
+        for item in error.errors()
+    ]
 
 
 def finding_to_flag(finding: Finding) -> Flag:
@@ -110,21 +133,21 @@ def validate_document(document: dict) -> tuple[dict, list[Flag]]:
     try:
         sheet = CharacterSheet.model_validate(document)
     except ValidationError as exc:
-        # The merged document is too malformed to model. Report it against the root and
-        # hand back what we have, so the editor can still show the raw values.
+        # The merged document is too malformed to model. Report each real problem where it
+        # is, and hand back what we have so the editor can still show the raw values.
         flags.append(
             Flag(
                 pointer="",
                 severity="error",
                 rule="document.unparseable",
                 message=(
-                    "The extracted document could not be loaded as a character sheet: "
-                    f"{exc.error_count()} problem(s). The first is: "
-                    f"{exc.errors()[0].get('msg', 'unknown')}."
+                    f"{exc.error_count()} value(s) below stop the sheet being loaded. Until "
+                    "they are fixed, nothing is derived from it and the other checks do not "
+                    "run."
                 ),
             )
         )
-        flags.extend(schema_flags(document))
+        flags.extend(model_error_flags(exc))
         return document, flags
 
     apply_derivations(sheet)

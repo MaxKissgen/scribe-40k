@@ -583,9 +583,34 @@ class TestEndToEnd:
         texts = [u.text for u in outcome.report.unmapped]
         assert "+30 Deceive" in texts
 
-    def test_the_notes_pages_are_kept_not_discarded(self, outcome) -> None:
-        pages = {u.source.pdfPage for u in outcome.report.unmapped}
-        assert {10, 12} <= pages
+    def test_the_notes_pages_become_note_pages(self, outcome) -> None:
+        """The scan ends with two pages of handwritten notes that are not part of the
+        form. They used to reach the tray as '(PDF page 10)' -- the fact that something
+        was there, without the something."""
+        notes = outcome.character["notePages"]
+
+        assert [n["sourcePdfPage"] for n in notes] == [10, 12]
+        assert "Rescued the astropath" in notes[0]["text"]
+
+    def test_a_note_page_says_where_it_came_from(self, outcome) -> None:
+        flags = {f.pointer: f for f in outcome.report.flags if f.rule == "ingest.note_page"}
+
+        assert set(flags) == {"/notePages/0/text", "/notePages/1/text"}
+        first = flags["/notePages/0/text"]
+        assert first.severity == "info", "a note page is not a problem to be fixed"
+        assert first.evidence.pdfPage == 10
+
+    def test_a_note_page_that_could_not_be_read_is_a_warning(self, outcome) -> None:
+        """Page 12 has no transcription here, which is exactly the case the user needs
+        pointing at: an attached page whose content did not survive."""
+        empty = next(
+            f
+            for f in outcome.report.flags
+            if f.rule == "ingest.note_page" and f.pointer == "/notePages/1/text"
+        )
+
+        assert empty.severity == "warning"
+        assert outcome.character["notePages"][1]["text"] is None
 
     def test_page_classification_is_recorded_for_every_page(self, outcome) -> None:
         assert len(outcome.report.pages) == 12

@@ -10,30 +10,40 @@ import { useState } from "react";
 
 import { api } from "../api";
 import { useSheet } from "../state";
-import type { UnmappedItem } from "../types";
+import type { Flag, UnmappedItem } from "../types";
 
 export function ReviewBar({ onExport }: { onExport: () => void }) {
-  const { openFlags, reviewCount, focusedPointer, focusPointer, saveState, saveError, report } =
-    useSheet();
+  const {
+    openFlags,
+    orphanFlags,
+    anchorOf,
+    reviewCount,
+    focusedPointer,
+    focusPointer,
+    saveState,
+    saveError,
+    report,
+  } = useSheet();
   const [trayOpen, setTrayOpen] = useState(false);
 
   const errors = openFlags.filter((flag) => flag.severity === "error").length;
   const warnings = reviewCount - errors;
   const trayCount = (report?.unmapped ?? []).filter((item) => item.status === "unresolved").length;
 
-  // Some flags are about the document rather than a field -- a sheet page missing from the
-  // scan, a page that could not be transcribed. There is nothing to scroll to, so they get
-  // their own line instead of being cycled through as if they were fields.
-  const documentFlags = openFlags.filter((flag) => !flag.pointer);
-  const fieldFlags = openFlags.filter((flag) => flag.pointer);
+  // Navigation walks the *fields* a flag can be shown on, which is not always the pointer
+  // the flag names.
+  const stops = openFlags
+    .map((flag) => anchorOf(flag))
+    .filter((pointer): pointer is string => pointer !== null);
+  const targets = [...new Set(stops)];
 
   const step = (delta: number) => {
-    if (fieldFlags.length === 0) return;
-    const current = fieldFlags.findIndex((flag) => flag.pointer === focusedPointer);
-    const next = (current + delta + fieldFlags.length) % fieldFlags.length;
+    if (targets.length === 0) return;
+    const current = targets.indexOf(focusedPointer ?? "");
+    const next = (current + delta + targets.length) % targets.length;
     // Clear first, so jumping to the same pointer twice still re-triggers the scroll.
     focusPointer(null);
-    window.setTimeout(() => focusPointer(fieldFlags[next].pointer), 0);
+    window.setTimeout(() => focusPointer(targets[next]), 0);
   };
 
   return (
@@ -51,7 +61,7 @@ export function ReviewBar({ onExport }: { onExport: () => void }) {
           )}
         </div>
 
-        {fieldFlags.length > 0 && (
+        {targets.length > 0 && (
           <div className="reviewbar__nav">
             <button type="button" onClick={() => step(-1)} aria-label="Previous flagged field">
               ‹
@@ -80,18 +90,59 @@ export function ReviewBar({ onExport }: { onExport: () => void }) {
         </div>
       </div>
 
-      {documentFlags.length > 0 && (
-        <ul className="reviewbar__document-flags">
-          {documentFlags.map((flag) => (
-            <li key={flag.rule + flag.message} className={`pill pill--${flag.severity}`}>
-              {flag.message}
-            </li>
-          ))}
-        </ul>
-      )}
+      {orphanFlags.length > 0 && <OrphanFlags flags={orphanFlags} />}
 
       {trayOpen && <AssignmentTray onClose={() => setTrayOpen(false)} />}
     </>
+  );
+}
+
+/**
+ * Flags with nowhere to go, and the only place they can be answered.
+ *
+ * Two kinds end up here. Some are about the document rather than a field -- a sheet page
+ * missing from the scan, a page that could not be transcribed. Others named a field that
+ * no longer exists, usually a row the user deleted after the extractor had already
+ * queried it.
+ *
+ * Both used to sit in the count with no way to clear them: the counter said nine fields
+ * needed review and the sheet showed none. Being able to dismiss one is the whole point
+ * of listing it.
+ */
+function OrphanFlags({ flags }: { flags: Flag[] }) {
+  const { id, resolveFlag } = useSheet();
+
+  return (
+    <section className="orphans">
+      <h2 className="orphans__heading">
+        Not about any one field ({flags.length})
+      </h2>
+      <ul className="orphans__list">
+        {flags.map((flag) => (
+          <li key={`${flag.pointer}:${flag.rule}`} className={`orphans__item pill--${flag.severity}`}>
+            <p className="orphans__message">{flag.message}</p>
+            <p className="orphans__meta">
+              <code>{flag.pointer || "the document as a whole"}</code>
+              {flag.evidence?.pdfPage != null && (
+                <>
+                  {" · "}
+                  <a
+                    href={api.pageImage(id, flag.evidence.pdfPage)}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    page {flag.evidence.pdfPage} of the scan ↗
+                  </a>
+                </>
+              )}
+            </p>
+            <button type="button" onClick={() => void resolveFlag(flag, "dismissed")}>
+              Dismiss
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -117,7 +168,7 @@ function SaveIndicator({ state, error }: { state: string; error: string | null }
  * session notes. None belongs in a field, and none should be silently thrown away.
  */
 function AssignmentTray({ onClose }: { onClose: () => void }) {
-  const { id, tray, assignFragment, dismissFragment } = useSheet();
+  const { id, tray, assignFragment, dismissFragment, addNotePage } = useSheet();
   const [target, setTarget] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -132,7 +183,8 @@ function AssignmentTray({ onClose }: { onClose: () => void }) {
 
       <p className="tray__intro">
         The extractor read these but could not place them in a field. Give one a field to go
-        in, or dismiss it. Anything left here stays in the extraction report.
+        in, send it to a note page if it is prose rather than a value, or dismiss it.
+        Anything left here stays in the extraction report.
       </p>
 
       <ul className="tray__list">
@@ -162,6 +214,14 @@ function AssignmentTray({ onClose }: { onClose: () => void }) {
                 setBusy(null);
               }
             }}
+            onSendToNotes={async () => {
+              setBusy(item.id);
+              try {
+                await addNotePage(item);
+              } finally {
+                setBusy(null);
+              }
+            }}
           />
         ))}
       </ul>
@@ -177,6 +237,7 @@ interface TrayEntryProps {
   onTargetChange: (value: string) => void;
   onAssign: () => void;
   onDismiss: () => void;
+  onSendToNotes: () => void;
 }
 
 function TrayEntry({
@@ -187,6 +248,7 @@ function TrayEntry({
   onTargetChange,
   onAssign,
   onDismiss,
+  onSendToNotes,
 }: TrayEntryProps) {
   return (
     <li className="tray__item">
@@ -214,6 +276,14 @@ function TrayEntry({
         />
         <button type="button" disabled={busy || !target} onClick={onAssign}>
           Assign
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onSendToNotes}
+          title="Not a value in a box: keep it as free text on a note page."
+        >
+          To a note page
         </button>
         <button type="button" disabled={busy} onClick={onDismiss}>
           Dismiss
