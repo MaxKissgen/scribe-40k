@@ -117,7 +117,7 @@ export function FlagPopover({ flags, onClose, apply, clearValue = null }: Props)
                 onClose();
               }}
             >
-              Wrong — clear it
+              Wrong
             </button>
           </div>
         </div>

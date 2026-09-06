@@ -21,19 +21,27 @@ python -m pip install -e ".[dev,export,anthropic]"
 python -m playwright install chromium
 ```
 
+OR
+
+```bash
+uv pip install .
+```
+
+THEN
+
 ```bash
 cd frontend && npm install && npm run build && cd ..
 ```
 
 The application needs two derived assets generated from the blank template PDF. The
-template is © Games Workshop Ltd and is **not** committed, so supply your own copy:
+template is © Games Workshop Ltd, so supply your own copy:
 
 ```bash
 python -m scribe40k.tools.build_assets path/to/dark-heresy-blank-template.pdf
 ```
 
 This preserves any layout fingerprints previously recorded by `record_layout`, so it is
-safe to re-run.
+safe to re-run. Also tries to copy the little mannequin from the armour section
 
 ### Credentials
 
@@ -69,13 +77,21 @@ variable it wants and whether it was found. No key is ever included in the respo
 
 ### From the browser
 
+#### Creating a new character
+
+***Start a blank sheet*** If you dont go off an existing sheet, you can simply use the
+scribe to create an own one. Simply enter all values by yourself, everything auto-saves and 
+the sheet is then ready for display in the web frontend or for pdf export
+
+#### Character import
+
 **Import a scanned sheet** on the front page. The pipeline classifies the pages,
 transcribes them, maps six sections in parallel and opens the result in the editor.
 
 The bar at the top says how many fields need review. **Next ›** jumps to each in turn,
 scrolls it into view and opens its explanation — the model's confidence, the text it read,
 alternative readings you can apply with one click, and a crop of that part of the scan.
-**Keep as is** settles it; **Wrong — clear it** empties the field.
+**Keep as is** settles it; **Wrong** empties the field.
 
 Flags that are not about any one field — a page that could not be transcribed, a reading
 of a row you have since deleted — are listed under the bar, where they can be dismissed.
@@ -88,6 +104,8 @@ marginal notes, values written outside their boxes. Give one a field to go in, s
 **Note pages** come after the sheet: free text with no boxes, for what players write on
 loose paper. Pages of the upload that are not part of the form are transcribed onto them
 automatically, and you can add your own.
+
+#### Export
 
 **Export PDF** prints the sheet, note pages included.
 
@@ -167,9 +185,8 @@ validation.
 
 ## Notes on behaviour
 
-**Page order is not assumed.** The calibration scan is a 12-page duplex scan whose sheet
-pages are 1, 3, 5, 7 and 9 — in the order 1, 2, 4, 5, 3 — with blank backs between them
-and two pages of handwritten session notes at the end. Pages are classified by matching
+**Page order is not assumed.** Scans can mix up page order or add new ones (e.g. notes on the back)
+. Pages are therefore classified by matching
 against known layouts, blanks are dropped, and anything unrecognised is surfaced rather
 than discarded.
 
@@ -186,7 +203,7 @@ of the transcription: where the model claims more marks than the transcription s
 level is brought down and the model's reading is kept as a one-click alternative on the
 flag.
 
-**A flag has two answers.** *Keep as is* accepts the value; *Wrong — clear it* empties the
+**A flag has two answers.** *Keep as is* accepts the value; *Wrong* empties the
 field (a text field to blank, a checkbox to unticked, a skill to its resting level). Both
 take the flag out of the count. An offered alternative reading applies it instead.
 
