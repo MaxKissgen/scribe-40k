@@ -43,7 +43,7 @@ python -m scribe40k.tools.build_assets path/to/dark-heresy-blank-template.pdf
 This preserves any layout fingerprints previously recorded by `record_layout`, so it is
 safe to re-run. Also tries to copy the little mannequin from the armour section
 
-### Credentials
+### Credentials (Only if you want to import sheets)
 
 Copy `.env.example` to `.env` and fill in the key for whichever provider you use:
 
