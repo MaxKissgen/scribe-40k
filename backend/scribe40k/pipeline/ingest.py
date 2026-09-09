@@ -9,6 +9,11 @@ This matters more than it might sound. The calibration sample is a 12-page duple
 whose sheet pages are 1, 3, 5, 7 and 9, with blank backs between them and two pages of
 handwritten session notes at the end. A pipeline that assumed "PDF page N is sheet page N"
 would misfile every section and burn five OCR calls on blank paper.
+
+Classification here is by page image alone, which is what makes it free. It is not the
+last word: pages it cannot place are given a second chance against their transcription in
+:mod:`~scribe40k.pipeline.page_text` once they have been read, which is how a photographed
+sheet gets recognised.
 """
 
 from __future__ import annotations
@@ -84,6 +89,11 @@ class IngestedPage:
     match_score: float
     #: Fraction of dark pixels.
     ink: float
+    #: Which signal placed this page. "image" is the fingerprint; "text" means the
+    #: fingerprint failed and the transcription identified it instead.
+    matched_by: str = "image"
+    #: Weighted recall against that sheet page's printed vocabulary, when matched by text.
+    text_score: float = 0.0
     #: Text lifted from the PDF's own text layer, if any.
     embedded_text: str = ""
     #: Where the rendered page image was written.
@@ -170,6 +180,16 @@ def load_template_fingerprints() -> dict[int, list[np.ndarray]]:
         vector = np.asarray(entry["vector"], dtype=np.float32)
         variants.setdefault(entry["sheetPage"], []).append(vector)
     return variants
+
+
+def load_page_text_signatures() -> dict[int, dict[str, float]]:
+    """The per-page printed vocabulary, for identifying a page from its transcription.
+
+    Empty when the assets predate this, in which case text recovery simply does not run
+    and classification behaves as it did before.
+    """
+    raw = _load_template_profile().get("textSignatures") or {}
+    return {int(page): dict(tokens) for page, tokens in raw.items()}
 
 
 def load_boilerplate_tokens() -> frozenset[str]:

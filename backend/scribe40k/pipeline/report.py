@@ -45,6 +45,11 @@ class PageRecord(Strict):
     sheetPage: int | None = None
     textSource: Literal["text_layer", "ocr"] = "ocr"
     matchScore: float | None = None
+    #: "image" when the page fingerprint placed this page, "text" when the fingerprint
+    #: failed and the transcription identified it instead.
+    matchedBy: Literal["image", "text"] = "image"
+    #: Weighted recall against that page's printed vocabulary; set only for "text".
+    textScore: float | None = None
     ink: float | None = None
     imagePath: str | None = None
     note: str | None = None

@@ -166,12 +166,17 @@ def dedupe_flags(flags: list[Flag]) -> list[Flag]:
     Both the model and the consistency rules can object to one field. Showing the user two
     badges on one input, saying nearly the same thing, makes the review harder rather than
     more thorough.
+
+    Document-level flags are the exception, and the message is part of their identity. They
+    have no pointer to share and no badge to crowd -- they are listed, not highlighted --
+    and one rule legitimately fires several times: a scan missing sheet pages 4 and 5 was
+    reporting only page 4, because the second finding collapsed into the first.
     """
-    seen: dict[tuple[str, str], Flag] = {}
-    order: list[tuple[str, str]] = []
+    seen: dict[tuple[str, str, str], Flag] = {}
+    order: list[tuple[str, str, str]] = []
 
     for flag in flags:
-        key = (flag.pointer, flag.rule)
+        key = (flag.pointer, flag.rule, flag.message if not flag.pointer else "")
         if key in seen:
             existing = seen[key]
             # Keep whichever carries more for the user to act on.

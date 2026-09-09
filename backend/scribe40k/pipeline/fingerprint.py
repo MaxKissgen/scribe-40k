@@ -6,8 +6,11 @@ boxes, headings, the three-column skills grid. Downsampling to a small grid thro
 the handwriting and keeps the furniture, which makes a plain correlation good enough to
 identify pages without spending a model call on it.
 
-Deliberately simple. If this ever proves insufficient, the fallback is to ask the vision
-model which sheet page it is looking at, not to build a template matcher.
+Deliberately simple, and it assumes the page is a flat rectangle photographed square-on.
+A scan is; a phone photo of a sheet lying on a desk is not, and on one of those every page
+scored below 0.29 against every template page. Rather than grow this into a dewarper, the
+pages it cannot place are handed to :mod:`~scribe40k.pipeline.page_text`, which identifies
+them from the printed words OCR read on them.
 """
 
 from __future__ import annotations

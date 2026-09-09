@@ -29,6 +29,7 @@ from .. import constants as K
 from ..paths import ARMOUR_SILHOUETTE, ASSETS, BLANK_TEMPLATE, PAGE_FINGERPRINTS
 from ..pipeline.fingerprint import FINGERPRINT_COLS, FINGERPRINT_ROWS, fingerprint_from_gray
 from ..pipeline.ingest import boilerplate_tokens
+from ..pipeline.page_text import build_signatures
 
 
 def extract_silhouette(doc: pymupdf.Document, dest: Path) -> tuple[int, int]:
@@ -54,6 +55,7 @@ def build_fingerprints(doc: pymupdf.Document) -> dict:
 
     pages = []
     boilerplate: set[str] = set()
+    page_text: dict[int, str] = {}
     for index in range(doc.page_count):
         page = doc[index]
         pix = page.get_pixmap(dpi=50, colorspace=pymupdf.csGRAY)
@@ -65,7 +67,14 @@ def build_fingerprints(doc: pymupdf.Document) -> dict:
                 "vector": [round(v, 4) for v in fingerprint_from_gray(gray).tolist()],
             }
         )
-        boilerplate.update(boilerplate_tokens(page.get_text("text") or ""))
+        text = page.get_text("text") or ""
+        boilerplate.update(boilerplate_tokens(text))
+        page_text[index + 1] = text
+
+    signatures = {
+        str(number): {token: round(weight, 3) for token, weight in sorted(tokens.items())}
+        for number, tokens in build_signatures(page_text).items()
+    }
 
     return {
         "description": (
@@ -76,11 +85,15 @@ def build_fingerprints(doc: pymupdf.Document) -> dict:
             "may appear more than once under different 'variant' values: 'template' is "
             "the original printed form, 'html' is this application's own rendering of "
             "the same page, recorded by scribe40k.tools.record_layout so that an exported "
-            "sheet can be imported back."
+            "sheet can be imported back. 'textSignatures' splits that same printed "
+            "vocabulary by page, weighted by how few pages print each word, so that a "
+            "page whose photograph is too skewed to fingerprint can still be identified "
+            "from its transcription."
         ),
         "grid": {"rows": FINGERPRINT_ROWS, "cols": FINGERPRINT_COLS},
         "pages": pages,
         "boilerplateTokens": sorted(boilerplate),
+        "textSignatures": signatures,
     }
 
 

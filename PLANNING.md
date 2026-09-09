@@ -138,11 +138,18 @@ Deterministic, no LLM spend:
 2. **Template matching** — each candidate page is cropped to its ink bounding box,
    downscaled to a coarse grayscale vector, and correlated against
    `assets/page-fingerprints.json`.
-3. Anything left over becomes an **unrecognised page**. These are transcribed like any
-   other and their text becomes a **note page** on the character, with a flag saying which
-   page of the upload it came from. The sample's two notes pages land here. Reporting them
-   as an unassigned fragment reading "(PDF page 10)" -- which is what this did first -- is
-   a way of saying something was there without saying what.
+3. Anything left over is transcribed, and then **identified from its text** against the
+   template's per-page printed vocabulary. This is the fallback for pages the image match
+   cannot handle: it compares page images as rigid grids, which a photograph of a sheet --
+   tilted, keystoned, unevenly lit -- defeats completely. The printed headings do not care
+   about any of that, and the transcription exists either way, so the second attempt is
+   free.
+4. Only what neither attempt can place becomes a **note page** on the character, with a
+   flag saying which page of the upload it came from. The sample's two notes pages land
+   here. Reporting them as an unassigned fragment reading "(PDF page 10)" -- which is what
+   this did first -- is a way of saying something was there without saying what. And a
+   document where *nothing* was recognised gets one loud error rather than a silent pile
+   of note pages.
 
 Three things about this only emerged from building it:
 

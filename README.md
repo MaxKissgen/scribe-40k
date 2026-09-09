@@ -190,6 +190,17 @@ validation.
 against known layouts, blanks are dropped, and anything unrecognised is surfaced rather
 than discarded.
 
+**A page gets two chances to be recognised, and a note page is the last resort.** Matching
+against known layouts compares page *images*, which assumes a flat rectangle photographed
+square-on. A phone photo of a sheet lying on a desk is not that — tilted, keystoned, lit
+from one side, with the desk visible around the paper — and every page of one scored below
+0.29 against every layout. So a page the image cannot place is transcribed and identified
+from the printed words on it instead: "RANGED WEAPONS", "RANK 1 ADVANCES", "MINOR PSYCHIC
+POWERS" are printed on exactly one page each and survive a bad photograph intact. Only
+what neither attempt can place becomes a note page, and a document where *nothing* was
+recognised says so once and loudly rather than quietly becoming a pile of notes. Since
+every page is transcribed anyway, the second attempt costs nothing.
+
 **Printed information is never asked of a model.** Every skill's governing characteristic
 and Basic flag, the armour hit locations, the 32-row minor-power table: all injected from
 `constants.py`. Characteristic bonuses, proficiency modifiers and gear quantities are
@@ -267,6 +278,10 @@ provider then replays them with no API calls, which is how the mapping stage is 
   that cannot be redistributed; EB Garamond and Tinos stand in. Drop a licensed
   `ColumbusMT` into `assets/fonts/` and point `--font-display` at it for an exact match.
 - **Checkbox recall depends on a vision-capable reasoning model**, as above.
+- **A photographed sheet is recognised, but read less well than a scanned one.** Page
+  identification recovers, and the values do come through; the handwriting simply reads
+  worse off a photo, so expect more fields flagged as uncertain. A flat scan is still
+  worth the trouble.
 - **Values are fitted to the paper by shrinking, down to 5.5pt.** A gear name longer than
   its printed line gets smaller rather than clipped, which is what a person with a pen
   would do; past the floor it is clipped after all.

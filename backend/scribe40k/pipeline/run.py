@@ -17,8 +17,9 @@ from pathlib import Path
 from ..blank import blank_character
 from ..llm.base import OcrPage, OcrProvider, PageImage, ReasoningProvider
 from ..llm.offline import PassthroughOcr
-from .ingest import IngestResult, PageKind, TextSource, ingest
+from .ingest import IngestResult, PageKind, TextSource, ingest, load_page_text_signatures
 from .mapper import map_sheet
+from .page_text import identify_pages
 from .report import (
     Evidence,
     ExtractionReport,
@@ -133,6 +134,56 @@ def _transcribe_extra_pages(
     return transcribed
 
 
+def _recover_pages_from_text(
+    result: IngestResult,
+    extra: dict[int, OcrPage],
+) -> dict[int, tuple[int, float]]:
+    """Reclassify unrecognised pages using what OCR read on them.
+
+    The image fingerprint assumes a flat, square-on page. A photograph of a sheet -- tilted,
+    keystoned, lit from one side, with a desk visible around the paper -- defeats it
+    completely: on a three-page phone photo of this very sheet, every page scored below
+    0.29 against every template page and all three were filed as notes.
+
+    The printed headings survive the photograph perfectly well, though, and OCR reads them.
+    This pass gives those pages a second chance against the template's per-page vocabulary,
+    and mutates the ingest result for the ones it can place. It only ever runs on pages the
+    image matcher gave up on, so a clean scan reaches mapping exactly as before.
+    """
+    signatures = load_page_text_signatures()
+    if not signatures:
+        return {}
+
+    candidates = {
+        page.pdf_page: transcription.text
+        for page in result.unrecognised_pages
+        if (transcription := extra.get(page.pdf_page)) and transcription.ok
+    }
+    if not candidates:
+        return {}
+
+    claimed = {p.sheet_page for p in result.sheet_pages if p.sheet_page}
+    identified = identify_pages(candidates, signatures, already_claimed=claimed)
+
+    for pdf_page, (sheet_page, recall) in identified.items():
+        page = result.page_for_pdf(pdf_page)
+        if page is None:
+            continue
+        page.kind = PageKind.SHEET
+        page.sheet_page = sheet_page
+        page.matched_by = "text"
+        page.text_score = recall
+        page.note = (
+            f"The image of this page matched no template page (best correlation "
+            f"{page.match_score:.2f}), but its transcription carries "
+            f"{recall:.0%} of the words printed on sheet page {sheet_page}. Photographs "
+            f"of a sheet often land here: the paper is tilted and lit unevenly, which the "
+            f"image match cannot see past but OCR can."
+        )
+
+    return identified
+
+
 def _note_pages(result: IngestResult, extra: dict[int, OcrPage]) -> list[dict]:
     """One note page per unrecognised page, in PDF order."""
     notes = []
@@ -160,6 +211,8 @@ def _page_records(result: IngestResult, ocr_pages: dict[int, OcrPage]) -> list[P
                 sheetPage=page.sheet_page,
                 textSource=page.text_source.value,
                 matchScore=round(page.match_score, 4),
+                matchedBy=page.matched_by,
+                textScore=round(page.text_score, 4) if page.matched_by == "text" else None,
                 ink=round(page.ink, 5),
                 imagePath=page.image_path.name if page.image_path else None,
                 note=page.note or None,
@@ -172,6 +225,27 @@ def _page_records(result: IngestResult, ocr_pages: dict[int, OcrPage]) -> list[P
 def _structural_flags(result: IngestResult, ocr_pages: dict[int, OcrPage]) -> list[Flag]:
     """Problems with the document itself, rather than with any one field."""
     flags: list[Flag] = []
+
+    # Every page becoming a note page is not five separate notices about five note pages;
+    # it is one thing having gone wrong, and saying so once is the difference between a
+    # user who knows to re-scan and one who thinks the tool ate their character.
+    if not result.sheet_pages and result.unrecognised_pages:
+        flags.append(
+            Flag(
+                pointer="",
+                severity="error",
+                rule="ingest.nothing_recognised",
+                message=(
+                    f"None of the {len(result.pages)} page(s) in this PDF could be "
+                    "identified as part of a Dark Heresy character sheet, either from the "
+                    "page image or from what was read on it, so the sheet itself is empty "
+                    "and everything found has been put on note pages. If this really is a "
+                    "character sheet, the most likely causes are a photograph taken at an "
+                    "angle, a different edition of the form, or a scan too dark to read."
+                ),
+                actual=len(result.pages),
+            )
+        )
 
     for missing in result.missing_sheet_pages:
         flags.append(
@@ -206,14 +280,15 @@ def _note_page_flags(result: IngestResult, notes: list[dict]) -> list[Flag]:
 
     A note page is not a problem to be fixed, so this is ``info`` and not a warning. But
     it should not appear from nowhere either: the user needs to know that PDF page 6 was
-    not part of the sheet and that its text is now here.
+    not part of the sheet, that both the image match and the transcription were given a
+    chance to place it, and that its text is now here.
     """
     flags: list[Flag] = []
     for index, note in enumerate(notes):
         pdf_page = note["sourcePdfPage"]
         page = result.page_for_pdf(pdf_page)
         reason = (page.note if page else "") or (
-            "it does not match any page of the character sheet"
+            "neither its image nor its transcription matched any page of the character sheet"
         )
         empty = not note["text"]
         flags.append(
@@ -269,12 +344,23 @@ def extract(
     if cached:
         say(f"  {cached} of {len(ocr_pages)} came from the cache")
 
-    extra_pages = _transcribe_extra_pages(ingested, ocr_provider)
     if ingested.unrecognised_pages:
         say(
-            f"  {len(ingested.unrecognised_pages)} page(s) are not part of the sheet; "
-            "transcribing them as note pages"
+            f"  {len(ingested.unrecognised_pages)} page(s) matched no template page; "
+            "transcribing them to see what they are"
         )
+    extra_pages = _transcribe_extra_pages(ingested, ocr_provider)
+
+    # Second chance for anything the image match could not place. A note page is meant to
+    # be where content ends up when nothing else fits, not the first thing tried.
+    recovered = _recover_pages_from_text(ingested, extra_pages)
+    for pdf_page, (sheet_page, recall) in sorted(recovered.items()):
+        say(f"  PDF page {pdf_page} reads as sheet page {sheet_page} ({recall:.0%} of its words)")
+        transcription = extra_pages.pop(pdf_page)
+        transcription.sheet_page = sheet_page
+        ocr_pages[sheet_page] = transcription
+    if recovered:
+        images = _page_images(ingested)
 
     say(f"Mapping {len(sections)} section(s)")
     document = blank_character().to_json_dict()
