@@ -131,9 +131,10 @@
           "matchedBy": {
             "enum": [
               "image",
-              "text"
+              "text",
+              "user"
             ],
-            "description": "Which signal placed this page. 'image' is the page fingerprint. 'text' means the fingerprint could not place it -- a photograph taken at an angle defeats it -- and the page was identified from the printed words its transcription contains instead."
+            "description": "Which signal placed this page. 'image' is the page fingerprint. 'text' means the fingerprint could not place it -- a photograph taken at an angle defeats it -- and the page was identified from the printed words its transcription contains instead. 'user' means a person overrode both on the assignment screen."
           },
           "textScore": {
             "type": [

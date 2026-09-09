@@ -85,8 +85,25 @@ the sheet is then ready for display in the web frontend or for pdf export
 
 #### Character import
 
-**Import a scanned sheet** on the front page. The pipeline classifies the pages,
-transcribes them, maps six sections in parallel and opens the result in the editor.
+**Import a scanned sheet** on the front page. The pipeline classifies the pages and
+transcribes them, and then stops and asks: **which page is which?**
+
+That screen shows a thumbnail of every page of your upload, already placed where the
+machine thinks it belongs — a sheet page, a note page, or left out. Drag one onto a
+different slot to correct it, or use the dropdown on the card. Dropping a page onto an
+occupied sheet page swaps the two, so a sheet page can never be claimed twice. **What was
+read** shows the opening of the transcription, which is often quicker than squinting at a
+thumbnail.
+
+Nothing has been mapped into fields at this point and the reasoning model has not run.
+**Looks right — read it** is what starts it; **Discard** deletes the upload. An import you
+leave unconfirmed is listed on the front page so you can come back to it.
+
+The step exists because the mistake it catches is not recoverable. A page filed as the
+wrong one gets mapped by the wrong prompt into the wrong fields with nothing to show for
+it, and a page filed as notes is not read at all — a sheet photographed at an angle came
+back as three pages of notes and an empty character. You can see it in a second; the
+machine cannot see it at all.
 
 The bar at the top says how many fields need review. **Next ›** jumps to each in turn,
 scrolls it into view and opens its explanation — the model's confidence, the text it read,
@@ -96,6 +113,16 @@ alternative readings you can apply with one click, and a crop of that part of th
 Flags that are not about any one field — a page that could not be transcribed, a reading
 of a row you have since deleted — are listed under the bar, where they can be dismissed.
 Nothing counted can be unreachable.
+
+**Mark all reviewed** accepts everything still open at once, for when you have gone
+through the sheet and filled in the last few fields by hand. It asks first, and says how
+many are errors, because an error means the sheet does not match the schema there and
+accepting leaves it that way. No value is changed either way.
+
+**The save indicator is also the save button.** Editing autosaves a moment after you stop
+typing; clicking *Unsaved changes* saves at once instead of waiting, and clicking *Saved*
+re-saves the sheet — useful for retrying after a failure, or just for watching it happen
+before closing the tab.
 
 **N unassigned** opens the tray: text found on the sheet that no field could hold —
 marginal notes, values written outside their boxes. Give one a field to go in, send it
@@ -118,6 +145,9 @@ scribe show aldleg                            # what still needs review
 scribe export aldleg -o aldleg.pdf            # render it back to paper
 scribe serve                                  # run the editor
 ```
+
+`extract` takes the proposed page assignment without asking — there is nobody to ask on a
+command line. Import through the browser when you want to check it first.
 
 Model choice can be overridden per run:
 

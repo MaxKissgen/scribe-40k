@@ -1,23 +1,39 @@
 """The whole extraction, end to end.
 
-    PDF -> ingest -> classify -> OCR -> map -> derive -> validate -> character + report
+    PDF -> ingest -> classify -> OCR -> [confirm] -> map -> derive -> validate -> character
 
 Each stage is testable on its own; this module is the wiring. It also enforces the rule
 that makes the pipeline safe to run on a messy document: nothing that was read from the
 paper is discarded silently. A page that could not be classified, a section job that
 failed, a fragment with nowhere to go -- each ends up in the report where the user can see
 it.
+
+The pipeline splits in two at ``[confirm]``, and the split is where the money is. Reading
+a PDF and transcribing it is cheap and reversible; mapping it is neither. So
+:func:`prepare` does everything up to and including OCR and hands back a *proposal* --
+which page of the upload is which page of the sheet -- and :func:`finish` takes an
+assignment, the user's or the proposal unaltered, and does the expensive half. A machine
+that has guessed wrong about which page is which will map a whole sheet into the wrong
+fields, and the person looking at the thumbnails is the one who can see it in a second.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from ..blank import blank_character
 from ..llm.base import OcrPage, OcrProvider, PageImage, ReasoningProvider
 from ..llm.offline import PassthroughOcr
-from .ingest import IngestResult, PageKind, TextSource, ingest, load_page_text_signatures
+from .ingest import (
+    IngestedPage,
+    IngestResult,
+    PageKind,
+    TextSource,
+    ingest,
+    load_page_text_signatures,
+)
 from .mapper import map_sheet
 from .page_text import identify_pages
 from .report import (
@@ -31,6 +47,10 @@ from .report import (
 from .sections import ALL_SECTIONS, Section
 from .validate import dedupe_flags, validate_document
 
+#: What a page of the upload may be assigned to: one of the five sheet pages, a note page,
+#: or nothing at all.
+PageTarget = int | Literal["notes", "skip"]
+
 
 @dataclass
 class ExtractionOutcome:
@@ -40,6 +60,102 @@ class ExtractionOutcome:
     @property
     def review_count(self) -> int:
         return self.report.review_count
+
+
+@dataclass
+class PreparedPages:
+    """A PDF read, classified and transcribed, but not yet mapped.
+
+    Everything here was produced without a reasoning call, and can be thrown away and
+    rebuilt from the same PDF for the price of the OCR (which is cached, so usually
+    nothing). It exists so the page assignment can be shown to a human before the
+    expensive half of the pipeline commits to it.
+    """
+
+    source_name: str
+    ingested: IngestResult
+    #: Every non-blank page's transcription, keyed by PDF page.
+    transcriptions: dict[int, OcrPage]
+    #: What the machine thinks each page is. The starting point for the user's answer.
+    proposal: dict[int, PageTarget]
+
+    def to_json_dict(self) -> dict:
+        """Serialised to ``pending.json`` so the confirmation can be a separate request."""
+        return {
+            "version": 1,
+            "sourceName": self.source_name,
+            "sourcePdf": str(self.ingested.source_pdf),
+            "fileHash": self.ingested.file_hash,
+            "pages": [
+                {
+                    "pdfPage": page.pdf_page,
+                    "kind": page.kind.value,
+                    "sheetPage": page.sheet_page,
+                    "textSource": page.text_source.value,
+                    "matchScore": page.match_score,
+                    "ink": page.ink,
+                    "matchedBy": page.matched_by,
+                    "textScore": page.text_score,
+                    "note": page.note,
+                    "embeddedText": page.embedded_text,
+                    "imagePath": str(page.image_path) if page.image_path else None,
+                    "imageSize": list(page.image_size) if page.image_size else None,
+                }
+                for page in self.ingested.pages
+            ],
+            "transcriptions": {
+                str(pdf_page): {
+                    "text": ocr.text,
+                    "provider": ocr.provider,
+                    "model": ocr.model,
+                    "cached": ocr.cached,
+                    "error": ocr.error,
+                }
+                for pdf_page, ocr in sorted(self.transcriptions.items())
+            },
+            "proposal": {str(page): target for page, target in sorted(self.proposal.items())},
+        }
+
+    @classmethod
+    def from_json_dict(cls, data: dict) -> PreparedPages:
+        result = IngestResult(
+            source_pdf=Path(data["sourcePdf"]),
+            file_hash=data["fileHash"],
+            pages=[
+                IngestedPage(
+                    pdf_page=entry["pdfPage"],
+                    kind=PageKind(entry["kind"]),
+                    sheet_page=entry["sheetPage"],
+                    text_source=TextSource(entry["textSource"]),
+                    match_score=entry["matchScore"],
+                    ink=entry["ink"],
+                    matched_by=entry["matchedBy"],
+                    text_score=entry["textScore"],
+                    embedded_text=entry.get("embeddedText", ""),
+                    image_path=Path(entry["imagePath"]) if entry["imagePath"] else None,
+                    image_size=tuple(entry["imageSize"]) if entry["imageSize"] else None,
+                    note=entry.get("note", ""),
+                )
+                for entry in data["pages"]
+            ],
+        )
+        return cls(
+            source_name=data["sourceName"],
+            ingested=result,
+            transcriptions={
+                int(pdf_page): OcrPage(
+                    pdf_page=int(pdf_page),
+                    sheet_page=None,
+                    text=entry["text"],
+                    provider=entry["provider"],
+                    model=entry["model"],
+                    cached=entry["cached"],
+                    error=entry["error"],
+                )
+                for pdf_page, entry in data["transcriptions"].items()
+            },
+            proposal={int(page): target for page, target in data["proposal"].items()},
+        )
 
 
 def _page_images(result: IngestResult) -> dict[int, PageImage]:
@@ -310,16 +426,19 @@ def _note_page_flags(result: IngestResult, notes: list[dict]) -> list[Flag]:
     return flags
 
 
-def extract(
+def prepare(
     pdf_path: Path,
     ocr_provider: OcrProvider,
-    reasoning_provider: ReasoningProvider,
     *,
     image_dir: Path,
-    sections: tuple[Section, ...] = ALL_SECTIONS,
+    source_name: str | None = None,
     progress=None,
-) -> ExtractionOutcome:
-    """Run the full pipeline over one sheet PDF."""
+) -> PreparedPages:
+    """Read, classify and transcribe a PDF, and propose what each page is.
+
+    The cheap half of the pipeline: no reasoning call is made, so the result can be shown
+    to the user, argued with, and thrown away.
+    """
 
     def say(message: str) -> None:
         if progress:
@@ -339,10 +458,10 @@ def extract(
     images = _page_images(ingested)
 
     say(f"Transcribing {len(images)} page(s)")
-    ocr_pages = _transcribe(ingested, images, ocr_provider)
-    cached = sum(1 for p in ocr_pages.values() if p.cached)
+    by_sheet_page = _transcribe(ingested, images, ocr_provider)
+    cached = sum(1 for p in by_sheet_page.values() if p.cached)
     if cached:
-        say(f"  {cached} of {len(ocr_pages)} came from the cache")
+        say(f"  {cached} of {len(by_sheet_page)} came from the cache")
 
     if ingested.unrecognised_pages:
         say(
@@ -356,11 +475,110 @@ def extract(
     recovered = _recover_pages_from_text(ingested, extra_pages)
     for pdf_page, (sheet_page, recall) in sorted(recovered.items()):
         say(f"  PDF page {pdf_page} reads as sheet page {sheet_page} ({recall:.0%} of its words)")
-        transcription = extra_pages.pop(pdf_page)
-        transcription.sheet_page = sheet_page
-        ocr_pages[sheet_page] = transcription
-    if recovered:
-        images = _page_images(ingested)
+
+    transcriptions = {page.pdf_page: page for page in by_sheet_page.values()}
+    transcriptions.update(extra_pages)
+
+    return PreparedPages(
+        # The name the user uploaded, not the name it was stored under: the store calls
+        # every scan "source.pdf", which is no help at all on the assignment screen.
+        source_name=source_name or pdf_path.name,
+        ingested=ingested,
+        transcriptions=transcriptions,
+        proposal=propose_assignment(ingested),
+    )
+
+
+def propose_assignment(result: IngestResult) -> dict[int, PageTarget]:
+    """What the machine believes each page of the upload is.
+
+    Blank pages are proposed as skipped rather than left out, so that every page of the
+    document appears on the assignment screen. A duplex back that the user knows is not
+    blank is exactly the sort of thing they should be able to drag back in.
+    """
+    return {page.pdf_page: _target_of(page) for page in result.pages}
+
+
+def apply_assignment(result: IngestResult, assignment: dict[int, PageTarget]) -> None:
+    """Overwrite the classification with what the user decided.
+
+    Pages the assignment does not mention keep what they had, so a partial answer is a
+    correction rather than a replacement.
+    """
+    for page in result.pages:
+        target = assignment.get(page.pdf_page)
+        if target is None:
+            continue
+        moved = target != _target_of(page)
+
+        if isinstance(target, int):
+            page.kind = PageKind.SHEET
+            page.sheet_page = target
+        elif target == "notes":
+            page.kind = PageKind.UNRECOGNISED
+            page.sheet_page = None
+        else:
+            page.kind = PageKind.BLANK
+            page.sheet_page = None
+
+        if moved:
+            page.matched_by = "user"
+            page.note = "Assigned by hand, overriding what the page was classified as."
+
+
+def _target_of(page: IngestedPage) -> PageTarget:
+    if page.kind is PageKind.SHEET and page.sheet_page:
+        return page.sheet_page
+    return "skip" if page.kind is PageKind.BLANK else "notes"
+
+
+def duplicate_sheet_pages(assignment: dict[int, PageTarget]) -> list[int]:
+    """Sheet pages claimed by more than one page of the upload.
+
+    A sheet has one of each page. Two uploads both claiming to be page 2 is not something
+    to resolve quietly: whichever is mapped second would silently overwrite the first.
+    """
+    counts: dict[int, int] = {}
+    for target in assignment.values():
+        if isinstance(target, int):
+            counts[target] = counts.get(target, 0) + 1
+    return sorted(page for page, count in counts.items() if count > 1)
+
+
+def finish(
+    prepared: PreparedPages,
+    reasoning_provider: ReasoningProvider,
+    *,
+    assignment: dict[int, PageTarget] | None = None,
+    sections: tuple[Section, ...] = ALL_SECTIONS,
+    progress=None,
+) -> ExtractionOutcome:
+    """Map an assignment of pages into a character document.
+
+    The expensive half. ``assignment`` defaults to the proposal, which is what the CLI and
+    a straight-through import use.
+    """
+
+    def say(message: str) -> None:
+        if progress:
+            progress(message)
+
+    ingested = prepared.ingested
+    apply_assignment(ingested, assignment if assignment is not None else prepared.proposal)
+
+    images = _page_images(ingested)
+    ocr_pages: dict[int, OcrPage] = {}
+    for page in ingested.sheet_pages:
+        transcription = prepared.transcriptions.get(page.pdf_page)
+        if transcription and page.sheet_page:
+            transcription.sheet_page = page.sheet_page
+            ocr_pages[page.sheet_page] = transcription
+
+    extra_pages = {
+        page.pdf_page: transcription
+        for page in ingested.unrecognised_pages
+        if (transcription := prepared.transcriptions.get(page.pdf_page))
+    }
 
     say(f"Mapping {len(sections)} section(s)")
     document = blank_character().to_json_dict()
@@ -388,12 +606,12 @@ def extract(
 
     report = ExtractionReport(
         source=SourceRef(
-            filename=pdf_path.name,
+            filename=prepared.source_name,
             fileHash=ingested.file_hash,
             pageCount=len(ingested.pages),
         ),
         models={
-            "ocr": ModelRef(provider=ocr_provider.name, model=ocr_provider.model),
+            "ocr": ModelRef(provider=_ocr_provider_name(prepared), model=_ocr_model(prepared)),
             "reasoning": ModelRef(
                 provider=reasoning_provider.name,
                 model=reasoning_provider.model,
@@ -418,3 +636,29 @@ def extract(
         )
 
     return ExtractionOutcome(character=document, report=report)
+
+
+def _ocr_provider_name(prepared: PreparedPages) -> str:
+    """Read back off the transcriptions, since ``finish`` never sees the OCR provider."""
+    return next((p.provider for p in prepared.transcriptions.values() if p.provider), "unknown")
+
+
+def _ocr_model(prepared: PreparedPages) -> str:
+    return next((p.model for p in prepared.transcriptions.values() if p.model), "unknown")
+
+
+def extract(
+    pdf_path: Path,
+    ocr_provider: OcrProvider,
+    reasoning_provider: ReasoningProvider,
+    *,
+    image_dir: Path,
+    sections: tuple[Section, ...] = ALL_SECTIONS,
+    progress=None,
+) -> ExtractionOutcome:
+    """Both halves in one call, taking the proposed page assignment as read.
+
+    What the CLI runs, and what an import does when nobody intervenes.
+    """
+    prepared = prepare(pdf_path, ocr_provider, image_dir=image_dir, progress=progress)
+    return finish(prepared, reasoning_provider, sections=sections, progress=progress)

@@ -28,6 +28,11 @@ data/
 # scans of filled sheets out of version control. Derived, non-reproducible
 # artefacts (page fingerprints, the armour stencil) live in assets/ and are
 # regenerated with `python -m scribe40k.tools.build_assets`.
-samples/*.pdf
-samples/*.png
-samples/*.jpg
+# Every level, not just the top: a folder of extracted pages under samples/ is the
+# same material, and `samples/*.png` did not cover it.
+samples/**/*.pdf
+samples/**/*.png
+samples/**/*.jpg
+samples/**/*.jpeg
+samples/**/character.json
+samples/**/report.json

@@ -4,6 +4,9 @@ import type {
   CharacterSummary,
   ExtractionReport,
   FlagStatus,
+  ImportProposal,
+  PageTarget,
+  PendingImport,
   Reference,
   UnmappedStatus,
 } from "./types";
@@ -107,7 +110,13 @@ export const api = {
       body: JSON.stringify({ id: unmappedId, status, assignedTo: assignedTo ?? null }),
     }),
 
-  async importPdf(file: File, name?: string): Promise<CharacterPayload> {
+  /**
+   * Upload a scan and get back a *proposal*, not a character.
+   *
+   * The reasoning model has not run at this point. Confirming the page assignment is what
+   * starts it, which is why this is two calls rather than one.
+   */
+  async importPdf(file: File, name?: string): Promise<ImportProposal> {
     const body = new FormData();
     body.append("file", file);
     const query = name ? `?name=${encodeURIComponent(name)}` : "";
@@ -122,8 +131,28 @@ export const api = {
       }
       throw new Error(detail);
     }
-    return (await response.json()) as CharacterPayload;
+    return (await response.json()) as ImportProposal;
   },
+
+  listImports: () => request<PendingImport[]>("/api/imports"),
+
+  getImport: (id: string) => request<ImportProposal>(`/api/imports/${id}`),
+
+  /** Map the pages as assigned. The expensive call. */
+  confirmImport: (id: string, assignment?: Record<string, PageTarget>) =>
+    request<CharacterPayload>(`/api/imports/${id}/confirm`, {
+      method: "POST",
+      body: JSON.stringify({ assignment: assignment ?? null }),
+    }),
+
+  cancelImport: (id: string) => request<void>(`/api/imports/${id}`, { method: "DELETE" }),
+
+  /** Accept every flag still open, in one action. */
+  clearFlags: (id: string) =>
+    request<{ cleared: number; reviewCount: number }>(
+      `/api/characters/${id}/flags/clear`,
+      { method: "POST" },
+    ),
 
   /** URL of a page of the original scan, optionally cropped to a bounding box. */
   pageImage(id: string, pdfPage: number, bbox?: [number, number, number, number]) {

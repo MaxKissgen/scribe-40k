@@ -104,8 +104,8 @@ scribe-40k/
 │   ├── pointer.py        RFC 6901 pointers, the shared address vocabulary
 │   ├── llm/              base · config · mistral · openai_compat · anthropic ·
 │   │                     offline (passthrough + fixtures) · cache · registry
-│   ├── pipeline/         fingerprint · ingest · sections · mapper · validate ·
-│   │                     report · run
+│   ├── pipeline/         fingerprint · ingest · page_text · sections · mapper ·
+│   │                     validate · report · run
 │   ├── export/pdf.py     Playwright print pipeline
 │   ├── tools/            build_assets · record_layout
 │   ├── store.py          JSON-file repository
@@ -113,10 +113,12 @@ scribe-40k/
 │   └── cli.py            scribe extract | list | show | export | serve
 ├── frontend/src/
 │   ├── components/       Field · FlagPopover · ReviewBar · Repeat
-│   ├── sheet/            Page1..Page4 (4 holds both psychic pages), sheet.css, print.css
+│   ├── sheet/            Page1..Page4 (4 holds both psychic pages), Notes,
+│   │                     sheet.css, print.css
+│   ├── ImportAssignment.tsx  drag pages onto the sheet page they are
 │   ├── state.tsx         document, autosave, flag index
 │   └── pointer.ts        the TypeScript half of the pointer vocabulary
-└── tests/                215 tests
+└── tests/                328 tests
 ```
 
 ---
@@ -191,6 +193,34 @@ Two questions are deliberately kept apart here, having been conflated in a first
 *Does this page have a text layer* decides whether OCR is needed; *does it carry player
 data* decides whether it is worth reading. Using the second to answer the first sent
 digitally-produced but lightly-filled pages through OCR for nothing.
+
+### Stage 2b · Confirm the page assignment
+
+The pipeline splits in two here, and the split is where the money is. Reading and
+transcribing a document is cheap, cached and reversible; mapping it is none of those.
+
+`prepare()` does everything up to and including OCR and returns a **proposal**: one entry
+per page of the upload saying which page of the sheet it is, how that was decided, and the
+opening of what was read on it. The browser draws it as thumbnails in slots and lets the
+user drag pages between them. `finish()` takes an assignment -- the user's, or the proposal
+unaltered -- and does the expensive half. `extract()` is both in one call, which is what
+the CLI runs, since there is nobody to ask on a command line.
+
+Between the two the state lives in `pending.json` beside the character, because the
+confirmation is a separate HTTP request. A directory with a `pending.json` and no
+`character.json` is an import waiting on a person; the front page lists those separately,
+since the character list cannot show them and an unlisted upload is an unreachable one.
+
+Why interrupt an otherwise automatic import: **the mistake this catches cannot be
+recovered from downstream.** A page filed as the wrong one is mapped by the wrong prompt
+into the wrong fields, and every check afterwards is checking the wrong thing. A page filed
+as notes is not mapped at all -- a sheet photographed at an angle came back as three note
+pages and an empty character. No prompt improves on this; a person looking at five
+thumbnails sees it instantly.
+
+Dropping a page onto an occupied sheet slot swaps the two rather than displacing the
+occupant somewhere it has to be hunted for, which also makes it impossible to claim one
+sheet page twice. The server checks anyway.
 
 ### Stage 3 · Map (pluggable reasoning LLM)
 
@@ -291,6 +321,15 @@ There is no separate review screen. Confirmed behaviour:
   fragment with its source crop. Give it a field to go in, send it to a note page if it is
   prose rather than a value, or dismiss it. Whatever is left stays in the report sidecar.
   The sample's marginal `+30 Deceive` lands here.
+- **Clear all.** "Mark all reviewed" accepts every open flag at once, for the point where
+  a user has been through the sheet and filled the last fields in by hand. Reviewing forty
+  low-confidence readings one at a time to reach zero is data entry, not review. Errors are
+  included -- a schema violation someone has decided to live with is a decision, and
+  excluding them leaves a counter that can never reach zero -- but the editor says how many
+  there are before doing it.
+- **Save on demand.** Editing autosaves after a pause; the indicator that says so is also a
+  button. Clicking it flushes what is queued, or re-saves the sheet when nothing is, which
+  is the retry after a failed save and the reassurance before closing a tab.
 - **Flags anchor to the nearest control.** Extractors report uncertainty at whatever
   granularity they read -- a whole specialisation, one item of a list -- so a flag is shown
   on the field that can answer it, and an accepted reading is written *there* rather than at

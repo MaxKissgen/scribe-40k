@@ -23,8 +23,11 @@ export function ReviewBar({ onExport }: { onExport: () => void }) {
     saveState,
     saveError,
     report,
+    clearAllFlags,
+    saveNow,
   } = useSheet();
   const [trayOpen, setTrayOpen] = useState(false);
+  const [clearing, setClearing] = useState(false);
 
   const errors = openFlags.filter((flag) => flag.severity === "error").length;
   const warnings = reviewCount - errors;
@@ -72,6 +75,34 @@ export function ReviewBar({ onExport }: { onExport: () => void }) {
           </div>
         )}
 
+        {reviewCount > 0 && (
+          <button
+            type="button"
+            className="reviewbar__clear-all"
+            disabled={clearing}
+            title="Accept everything still open, without changing any value."
+            onClick={async () => {
+              // Errors are schema violations, so waving those through deserves a sentence
+              // rather than a silent click. Warnings alone do not.
+              const question =
+                errors > 0
+                  ? `Mark all ${reviewCount} as reviewed? ${errors} ${
+                      errors === 1 ? "is an error" : "are errors"
+                    } — the sheet does not match the schema there, and accepting leaves it that way.`
+                  : `Mark all ${reviewCount} as reviewed?`;
+              if (!window.confirm(question)) return;
+              setClearing(true);
+              try {
+                await clearAllFlags();
+              } finally {
+                setClearing(false);
+              }
+            }}
+          >
+            {clearing ? "Clearing…" : "Mark all reviewed"}
+          </button>
+        )}
+
         {trayCount > 0 && (
           <button
             type="button"
@@ -83,7 +114,7 @@ export function ReviewBar({ onExport }: { onExport: () => void }) {
         )}
 
         <div className="reviewbar__right">
-          <SaveIndicator state={saveState} error={saveError} />
+          <SaveIndicator state={saveState} error={saveError} onSave={saveNow} />
           <button type="button" className="button button--primary" onClick={onExport}>
             Export PDF
           </button>
@@ -146,16 +177,59 @@ function OrphanFlags({ flags }: { flags: Flag[] }) {
   );
 }
 
-function SaveIndicator({ state, error }: { state: string; error: string | null }) {
+/**
+ * Whether the sheet is saved, and the way to make it so.
+ *
+ * Autosave means the indicator is nearly always telling you it already happened. It is
+ * still the thing people look at before closing a tab, so it is also the button: clicking
+ * it flushes whatever is queued instead of waiting out the debounce, and clicking it with
+ * nothing queued retries a save that failed.
+ */
+function SaveIndicator({
+  state,
+  error,
+  onSave,
+}: {
+  state: string;
+  error: string | null;
+  onSave: () => Promise<void>;
+}) {
+  const [saving, setSaving] = useState(false);
+
   const text = {
-    idle: "",
+    idle: "Saved",
     pending: "Unsaved changes",
-    saving: "Saving...",
+    saving: "Saving…",
     saved: "Saved",
     error: `Save failed: ${error ?? "unknown"}`,
   }[state];
 
-  return <span className={`save save--${state}`}>{text}</span>;
+  const title = {
+    idle: "Everything is saved. Click to save again.",
+    pending: "Not saved yet. Click to save now.",
+    saving: "Saving…",
+    saved: "Saved. Click to save again.",
+    error: "Click to try saving again.",
+  }[state];
+
+  return (
+    <button
+      type="button"
+      className={`save save--${state}`}
+      title={title}
+      disabled={saving || state === "saving"}
+      onClick={async () => {
+        setSaving(true);
+        try {
+          await onSave();
+        } finally {
+          setSaving(false);
+        }
+      }}
+    >
+      {text}
+    </button>
+  );
 }
 
 // --------------------------------------------------------------------------------------

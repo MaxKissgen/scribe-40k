@@ -70,6 +70,8 @@ interface SheetContextValue {
   orphanFlags: Flag[];
   reviewCount: number;
   resolveFlag: (flag: Flag, status: FlagStatus) => Promise<void>;
+  /** Accept every open flag at once. Returns how many were cleared. */
+  clearAllFlags: () => Promise<number>;
 
   tray: UnmappedItem[];
   assignFragment: (item: UnmappedItem, pointer: string) => Promise<void>;
@@ -84,6 +86,8 @@ interface SheetContextValue {
   saveState: SaveState;
   saveError: string | null;
   flush: () => Promise<void>;
+  /** Save on demand: flush what is queued, or re-save the sheet if nothing is. */
+  saveNow: () => Promise<void>;
 
   printMode: boolean;
 }
@@ -190,6 +194,32 @@ export function SheetProvider({
     },
     [flush],
   );
+
+  /**
+   * What the save indicator does when clicked.
+   *
+   * Autosave already covers correctness, so this exists for the moment before closing a
+   * tab when someone wants to see it happen rather than trust it. With edits queued it
+   * skips the debounce; with none, it sends the sheet as it stands, which also re-runs
+   * derivation and the checks on the server. Either way the click does something.
+   */
+  const saveNow = useCallback(async () => {
+    if (pending.current.size > 0) {
+      await flush();
+      return;
+    }
+    setSaveState("saving");
+    try {
+      const payload = await api.replace(id, character);
+      setCharacter(payload.character);
+      setReport(payload.report);
+      setSaveState("saved");
+      setSaveError(null);
+    } catch (error) {
+      setSaveState("error");
+      setSaveError(error instanceof Error ? error.message : String(error));
+    }
+  }, [id, character, flush]);
 
   // Never lose an edit to a closed tab.
   useEffect(() => {
@@ -299,6 +329,12 @@ export function SheetProvider({
     [id, report],
   );
 
+  const clearAllFlags = useCallback(async () => {
+    const { cleared } = await api.clearFlags(id);
+    setReport(await api.report(id));
+    return cleared;
+  }, [id]);
+
   const tray = useMemo(
     () => (report?.unmapped ?? []).filter((item) => item.status === "unresolved"),
     [report],
@@ -347,6 +383,7 @@ export function SheetProvider({
     orphanFlags,
     reviewCount: openFlags.length,
     resolveFlag,
+    clearAllFlags,
     tray,
     assignFragment,
     dismissFragment,
@@ -356,6 +393,7 @@ export function SheetProvider({
     saveState,
     saveError,
     flush,
+    saveNow,
     printMode,
   };
 

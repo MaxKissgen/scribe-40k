@@ -10,16 +10,24 @@ import { useCallback, useEffect, useState } from "react";
 
 import { api } from "./api";
 import { ReviewBar } from "./components/ReviewBar";
+import { ImportAssignment } from "./ImportAssignment";
 import { NotePages } from "./sheet/Notes";
 import { Page1 } from "./sheet/Page1";
 import { Page2 } from "./sheet/Page2";
 import { Page3 } from "./sheet/Page3";
 import { PsychicPages } from "./sheet/Page4";
 import { SheetProvider } from "./state";
-import type { CharacterPayload, CharacterSummary, Reference } from "./types";
+import type {
+  CharacterPayload,
+  CharacterSummary,
+  ImportProposal,
+  PendingImport,
+  Reference,
+} from "./types";
 
 type Route =
   | { name: "list" }
+  | { name: "assign"; id: string }
   | { name: "edit"; id: string }
   | { name: "print"; id: string };
 
@@ -29,6 +37,11 @@ function routeFromLocation(): Route {
   if (edit) return { name: "edit", id: edit[1] };
   const print = path.match(/^\/print\/([^/]+)$/);
   if (print) return { name: "print", id: print[1] };
+  // An import that has been read but not confirmed. A route of its own so that reloading
+  // the page, or coming back to the tab later, lands back on the assignment rather than
+  // losing it.
+  const assign = path.match(/^\/import\/([^/]+)$/);
+  if (assign) return { name: "assign", id: assign[1] };
   return { name: "list" };
 }
 
@@ -57,6 +70,10 @@ export function App() {
 
   if (route.name === "list") return <CharacterList reference={reference} navigate={navigate} />;
 
+  if (route.name === "assign") {
+    return <AssignPages key={route.id} id={route.id} navigate={navigate} />;
+  }
+
   return (
     <Editor
       key={route.id}
@@ -78,11 +95,13 @@ function CharacterList({
   navigate: (path: string) => void;
 }) {
   const [characters, setCharacters] = useState<CharacterSummary[] | null>(null);
+  const [pending, setPending] = useState<PendingImport[]>([]);
   const [busy, setBusy] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
     api.list().then(setCharacters).catch(() => setCharacters([]));
+    api.listImports().then(setPending).catch(() => setPending([]));
   }, []);
 
   useEffect(refresh, [refresh]);
@@ -91,8 +110,8 @@ function CharacterList({
     setBusy(true);
     setImportError(null);
     try {
-      const payload = await api.importPdf(file);
-      navigate(`/character/${payload.id}`);
+      const proposal = await api.importPdf(file);
+      navigate(`/import/${proposal.id}`);
     } catch (error) {
       setImportError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -136,11 +155,42 @@ function CharacterList({
 
       {busy && (
         <p className="shell__note">
-          Classifying pages, transcribing, and mapping six sections. This takes a minute or
-          two on a scan.
+          Classifying and transcribing the pages. Nothing is mapped into fields until you
+          have confirmed which page is which.
         </p>
       )}
       {importError && <p className="shell__error">{importError}</p>}
+
+      {pending.length > 0 && (
+        <section className="pending">
+          <h2 className="pending__heading">Waiting for you to say which page is which</h2>
+          <ul className="pending__list">
+            {pending.map((entry) => (
+              <li key={entry.id} className="pending__item">
+                <span>
+                  {entry.sourceName} — {entry.pageCount} page
+                  {entry.pageCount === 1 ? "" : "s"}, read but not mapped
+                </span>
+                <span className="pending__actions">
+                  <button type="button" onClick={() => navigate(`/import/${entry.id}`)}>
+                    Continue
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!window.confirm(`Discard the import of ${entry.sourceName}?`)) return;
+                      await api.cancelImport(entry.id);
+                      refresh();
+                    }}
+                  >
+                    Discard
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {characters === null ? (
         <p className="shell__note">Loading…</p>
@@ -181,6 +231,32 @@ function CharacterList({
         {reference.page.heightMm} mm.
       </footer>
     </div>
+  );
+}
+
+// --------------------------------------------------------------------------------------
+
+/** Loads a pending import and hands it to the assignment screen. */
+function AssignPages({ id, navigate }: { id: string; navigate: (path: string) => void }) {
+  const [proposal, setProposal] = useState<ImportProposal | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .getImport(id)
+      .then(setProposal)
+      .catch((problem) => setError(problem instanceof Error ? problem.message : String(problem)));
+  }, [id]);
+
+  if (error) return <div className="app-error">{error}</div>;
+  if (!proposal) return <div className="app-loading">Loading the pages…</div>;
+
+  return (
+    <ImportAssignment
+      proposal={proposal}
+      onDone={(characterId) => navigate(`/character/${characterId}`)}
+      onCancelled={() => navigate("/")}
+    />
   );
 }
 

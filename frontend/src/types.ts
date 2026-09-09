@@ -93,6 +93,39 @@ export interface CharacterPayload {
   reviewCount: number;
 }
 
+/** What a page of an upload may be assigned to: a sheet page, a note page, or nothing. */
+export type PageTarget = number | "notes" | "skip";
+
+export interface PageProposal {
+  pdfPage: number;
+  proposed: PageTarget;
+  matchedBy: "image" | "text" | "user";
+  matchScore: number;
+  textScore: number | null;
+  ink: number;
+  note: string | null;
+  hasImage: boolean;
+  /** The opening of what OCR read, so a page can be told apart without opening the scan. */
+  transcriptionPreview: string | null;
+}
+
+/** An import that has been read but not yet mapped, waiting on the page assignment. */
+export interface ImportProposal {
+  id: string;
+  status: "awaiting_assignment";
+  sourceName: string;
+  sheetPageCount: number;
+  pages: PageProposal[];
+}
+
+/** An upload sitting on the assignment screen, listed so it cannot be lost. */
+export interface PendingImport {
+  id: string;
+  sourceName: string;
+  pageCount: number;
+  startedAt: string;
+}
+
 export interface CharacterSummary {
   id: string;
   name: string;

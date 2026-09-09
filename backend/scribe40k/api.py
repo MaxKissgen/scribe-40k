@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import io
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import Body, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -30,7 +30,9 @@ from .llm.config import load_config
 from .llm.registry import OFFLINE_PROVIDERS, build_ocr_provider, build_reasoning_provider
 from .paths import ARMOUR_SILHOUETTE, FRONTEND_DIST
 from .pipeline.report import ExtractionReport
-from .pipeline.run import extract as run_extract
+from .pipeline.run import PageTarget, PreparedPages, duplicate_sheet_pages
+from .pipeline.run import finish as run_finish
+from .pipeline.run import prepare as run_prepare
 from .pipeline.validate import dedupe_flags, validate_document
 from .store import CharacterStore
 
@@ -78,6 +80,17 @@ class UnmappedUpdate(BaseModel):
 
 class CreateRequest(BaseModel):
     name: str | None = None
+
+
+class ConfirmImport(BaseModel):
+    """Which page of the upload is which page of the sheet.
+
+    Keyed by PDF page number as a string, because that is what JSON object keys are. A
+    value of 1-5 is a sheet page, "notes" puts the page's text on a note page, and "skip"
+    leaves it out entirely. Omitting the field accepts the proposal as it stands.
+    """
+
+    assignment: dict[str, int | Literal["notes", "skip"]] | None = None
 
 
 class NotePageRequest(BaseModel):
@@ -146,6 +159,45 @@ def _refresh_rule_flags(character_id: str, rule_flags: list) -> bool:
 def _is_rule_flag(rule: str) -> bool:
     """True for flags that :func:`validate_document` regenerates on every save."""
     return not rule.startswith(("model.", "ocr.", "ingest."))
+
+
+def _assignment_from(raw: dict[str, object]) -> dict[int, PageTarget]:
+    try:
+        return {int(page): target for page, target in raw.items()}  # type: ignore[misc]
+    except ValueError as exc:
+        raise HTTPException(400, f"page numbers must be integers: {exc}") from exc
+
+
+def _proposal(character_id: str, prepared: PreparedPages) -> dict:
+    """The assignment screen's whole input: one entry per page of the upload."""
+    return {
+        "id": character_id,
+        "status": "awaiting_assignment",
+        "sourceName": prepared.source_name,
+        "sheetPageCount": K.SHEET_PAGE_COUNT,
+        "pages": [
+            {
+                "pdfPage": page.pdf_page,
+                "proposed": prepared.proposal.get(page.pdf_page, "notes"),
+                "matchedBy": page.matched_by,
+                "matchScore": round(page.match_score, 4),
+                "textScore": round(page.text_score, 4) if page.matched_by == "text" else None,
+                "ink": round(page.ink, 5),
+                "note": page.note or None,
+                "hasImage": page.image_path is not None,
+                "transcriptionPreview": _preview(prepared.transcriptions.get(page.pdf_page)),
+            }
+            for page in prepared.ingested.pages
+        ],
+    }
+
+
+def _preview(transcription) -> str | None:
+    """Enough of what was read to recognise the page without opening the scan."""
+    if transcription is None or not transcription.ok:
+        return None
+    collapsed = " ".join(transcription.text.split())
+    return collapsed[:400] or None
 
 
 def _payload(character_id: str, document: dict) -> dict:
@@ -256,6 +308,35 @@ def update_flag(character_id: str, body: FlagUpdate) -> dict:
     return {"reviewCount": report.review_count, "updated": matched}
 
 
+@app.post("/api/characters/{character_id}/flags/clear")
+def clear_flags(character_id: str) -> dict:
+    """Accept every flag still open, in one action.
+
+    The equivalent of marking a conversation read. Reviewing forty low-confidence readings
+    one at a time to reach zero is not review, it is data entry -- and a user who has just
+    filled in the last few fields by hand already knows the sheet is right.
+
+    Errors are included. They are the user's to wave through: a schema violation they have
+    decided to live with is a decision, not an oversight, and the alternative is a counter
+    that can never reach zero. The editor asks first and says how many are errors.
+    """
+    _require(character_id)
+    report = _report_or_empty(character_id)
+    if report is None:
+        raise HTTPException(404, "this character has no extraction report")
+
+    cleared = 0
+    for flag in report.flags:
+        if flag.status == "needs_review":
+            flag.status = "accepted"
+            cleared += 1
+
+    if cleared:
+        store.save_report(character_id, report)
+
+    return {"cleared": cleared, "reviewCount": report.review_count}
+
+
 @app.post("/api/characters/{character_id}/unmapped")
 def update_unmapped(character_id: str, body: UnmappedUpdate) -> dict:
     """Assign a stray fragment to a field, or dismiss it."""
@@ -349,8 +430,10 @@ def get_page_image(
     The crop parameters are what puts a picture of the actual handwriting beside a flagged
     field, which is the difference between "is this right?" and a decision the user can
     actually make.
+
+    Deliberately does not require a character to exist yet: the assignment screen shows
+    these thumbnails before there is one.
     """
-    _require(character_id)
     path = store.pages_dir(character_id) / f"page-{pdf_page:02d}.png"
     if not path.exists():
         raise HTTPException(404, f"no image for PDF page {pdf_page}")
@@ -388,11 +471,20 @@ async def import_pdf(
     file: Annotated[UploadFile, File()],
     name: Annotated[str | None, Query()] = None,
 ) -> dict:
-    """Upload a scanned sheet and run the extraction pipeline over it."""
+    """Upload a scanned sheet, read it, and propose what each page is.
+
+    Stops short of the reasoning model. What comes back is a *proposal*: one entry per
+    page of the upload saying which page of the sheet it looks like. Confirming it (or
+    correcting it first) is a second request.
+
+    Splitting the import here is not ceremony. Getting the page assignment wrong maps a
+    whole sheet into the wrong fields, and no amount of prompt work fixes it afterwards --
+    while a person looking at five thumbnails sees it immediately.
+    """
     config = load_config()
     try:
         ocr = build_ocr_provider(config.ocr, cache=config.cache)
-        reasoning = build_reasoning_provider(config.reasoning, cache=config.cache)
+        build_reasoning_provider(config.reasoning, cache=config.cache)
     except ProviderError as exc:
         raise HTTPException(503, str(exc)) from exc
 
@@ -404,11 +496,73 @@ async def import_pdf(
     source = store.source_path(character_id)
     source.write_bytes(await file.read())
 
-    outcome = run_extract(source, ocr, reasoning, image_dir=store.pages_dir(character_id))
+    prepared = run_prepare(
+        source,
+        ocr,
+        image_dir=store.pages_dir(character_id),
+        source_name=file.filename or None,
+    )
+    store.save_pending(character_id, prepared)
+
+    return _proposal(character_id, prepared)
+
+
+@app.get("/api/imports")
+def list_imports() -> list[dict]:
+    """Uploads that have been read but not yet confirmed."""
+    return store.list_pending()
+
+
+@app.get("/api/imports/{character_id}")
+def get_import(character_id: str) -> dict:
+    """The pending proposal, so reloading the assignment screen does not lose it."""
+    prepared = store.load_pending(character_id)
+    if prepared is None:
+        raise HTTPException(404, f"no import waiting for confirmation as '{character_id}'")
+    return _proposal(character_id, prepared)
+
+
+@app.post("/api/imports/{character_id}/confirm")
+def confirm_import(character_id: str, body: ConfirmImport) -> dict:
+    """Map the pages as assigned. This is the request that spends money."""
+    prepared = store.load_pending(character_id)
+    if prepared is None:
+        raise HTTPException(404, f"no import waiting for confirmation as '{character_id}'")
+
+    config = load_config()
+    try:
+        reasoning = build_reasoning_provider(config.reasoning, cache=config.cache)
+    except ProviderError as exc:
+        raise HTTPException(503, str(exc)) from exc
+
+    assignment = _assignment_from(body.assignment) if body.assignment is not None else None
+    if assignment is not None:
+        unknown = set(assignment) - {p.pdf_page for p in prepared.ingested.pages}
+        if unknown:
+            raise HTTPException(400, f"the upload has no page {sorted(unknown)[0]}")
+        duplicates = duplicate_sheet_pages(assignment)
+        if duplicates:
+            raise HTTPException(
+                400,
+                f"sheet page {duplicates[0]} is assigned to more than one page of the "
+                "upload; a sheet has one of each",
+            )
+
+    outcome = run_finish(prepared, reasoning, assignment=assignment)
     store.save(character_id, outcome.character)
     store.save_report(character_id, outcome.report)
+    store.clear_pending(character_id)
 
     return _payload(character_id, outcome.character)
+
+
+@app.delete("/api/imports/{character_id}", status_code=204)
+def cancel_import(character_id: str) -> Response:
+    """Abandon an import that has not been confirmed."""
+    if store.load_pending(character_id) is None:
+        raise HTTPException(404, f"no import waiting for confirmation as '{character_id}'")
+    store.delete(character_id)
+    return Response(status_code=204)
 
 
 # --------------------------------------------------------------------------------------

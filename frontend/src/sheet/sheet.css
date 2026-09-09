@@ -254,9 +254,44 @@ body {
   gap: 0.75rem;
 }
 
+.reviewbar__clear-all {
+  border: 1px solid #bdbdb8;
+  background: var(--paper);
+  border-radius: 3px;
+  padding: 0.25rem 0.6rem;
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.reviewbar__clear-all:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* The indicator is also the save button, so it has to look pressable without shouting. */
 .save {
   color: var(--muted);
   font-size: 0.78rem;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: none;
+  padding: 0.2rem 0.45rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.save:hover:not(:disabled) {
+  border-color: #bdbdb8;
+  background: var(--paper);
+}
+
+.save:disabled {
+  cursor: default;
+}
+
+.save--pending {
+  color: var(--ink);
 }
 
 .save--error {
@@ -1604,4 +1639,183 @@ label.tick input[type="checkbox"] {
 
 .orphans__item button {
   grid-area: action;
+}
+
+/* -- The page assignment screen ---------------------------------------------------- */
+
+.assign__slots {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 0.6rem;
+  margin: 1rem 0;
+}
+
+.assign__slot {
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 0.5rem 0.6rem 0.6rem;
+  background: var(--paper);
+  min-height: 8rem;
+}
+
+/* While a page is in flight, every target says so -- otherwise the only way to find out
+   where a page may be dropped is to try it. */
+.assign__slot--armed {
+  border-style: dashed;
+  border-color: var(--focus);
+}
+
+.assign__slot--over {
+  border-style: solid;
+  border-color: var(--focus);
+  background: #eef4ff;
+}
+
+.assign__slot-label {
+  margin: 0;
+  font-family: var(--font-display);
+  font-variant: small-caps;
+  letter-spacing: 0.05em;
+  font-size: 0.95rem;
+}
+
+.assign__slot-hint {
+  margin: 0 0 0.4rem;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.assign__slot-body {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.assign__slot--empty .assign__slot-body::after {
+  content: "empty";
+  font-size: 0.7rem;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.assign__page {
+  display: flex;
+  gap: 0.5rem;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 0.35rem;
+  background: #fff;
+  cursor: grab;
+}
+
+.assign__page:active {
+  cursor: grabbing;
+}
+
+.assign__thumb {
+  width: 4.5rem;
+  height: 6rem;
+  object-fit: cover;
+  object-position: top center;
+  border: 1px solid var(--rule);
+  background: #fff;
+  flex: none;
+}
+
+.assign__thumb--none {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  color: var(--muted);
+}
+
+.assign__page-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+  font-size: 0.78rem;
+}
+
+.assign__why {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.assign__why--weak {
+  color: var(--flag-warning);
+}
+
+.assign__select {
+  font: inherit;
+  font-size: 0.75rem;
+  max-width: 100%;
+}
+
+.assign__peek {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 0.7rem;
+  color: var(--focus);
+  text-align: left;
+  cursor: pointer;
+}
+
+.assign__text {
+  margin: 0;
+  max-height: 8rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 0.65rem;
+  line-height: 1.4;
+  background: #f6f6f4;
+  padding: 0.35rem;
+  border-radius: 2px;
+}
+
+.assign__actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+/* -- Imports waiting on their page assignment -------------------------------------- */
+
+.pending {
+  border: 1px dashed var(--focus);
+  border-radius: 4px;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 1rem;
+  background: #eef4ff;
+}
+
+.pending__heading {
+  margin: 0 0 0.35rem;
+  font-size: 0.85rem;
+  font-variant: small-caps;
+  letter-spacing: 0.05em;
+}
+
+.pending__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.pending__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.85rem;
+}
+
+.pending__actions {
+  display: flex;
+  gap: 0.35rem;
+  flex: none;
 }

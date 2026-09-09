@@ -7,8 +7,13 @@ data outlives this program.
     data/characters/<id>/
         character.json   validates against dark-heresy-character-sheet.schema.json
         report.json      validates against extraction-report.schema.json
+        pending.json     an import read but not yet confirmed; deleted once it is
         source.pdf       the uploaded scan, kept for the review crops
         pages/           rendered page images
+
+A directory with a ``pending.json`` and no ``character.json`` is an import waiting for
+someone to confirm which page is which. It does not appear in the character list, because
+it is not a character yet.
 """
 
 from __future__ import annotations
@@ -27,6 +32,7 @@ from .pipeline.report import ExtractionReport
 
 CHARACTER_FILE = "character.json"
 REPORT_FILE = "report.json"
+PENDING_FILE = "pending.json"
 SOURCE_FILE = "source.pdf"
 PAGES_DIR = "pages"
 
@@ -62,6 +68,9 @@ class CharacterStore:
 
     def report_path(self, character_id: str) -> Path:
         return self.directory(character_id) / REPORT_FILE
+
+    def pending_path(self, character_id: str) -> Path:
+        return self.directory(character_id) / PENDING_FILE
 
     def pages_dir(self, character_id: str) -> Path:
         return self.directory(character_id) / PAGES_DIR
@@ -143,6 +152,55 @@ class CharacterStore:
         path.parent.mkdir(parents=True, exist_ok=True)
         _atomic_write(path, json.dumps(report.to_json_dict(), indent=2, ensure_ascii=False) + "\n")
         return path
+
+    def save_pending(self, character_id: str, prepared) -> Path:
+        """Park a read-but-unconfirmed import between the two halves of the pipeline."""
+        path = self.pending_path(character_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = json.dumps(prepared.to_json_dict(), indent=2, ensure_ascii=False)
+        _atomic_write(path, payload + "\n")
+        return path
+
+    def list_pending(self) -> list[dict]:
+        """Imports read but never confirmed.
+
+        They are invisible to :meth:`list_characters` by design -- they are not characters
+        yet -- which would make an abandoned one invisible full stop. The front page lists
+        these separately so it can be resumed or thrown away.
+        """
+        if not self.root.exists():
+            return []
+
+        pending = []
+        for directory in sorted(self.root.iterdir()):
+            path = directory / PENDING_FILE
+            if not path.is_file() or (directory / CHARACTER_FILE).is_file():
+                continue
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                continue
+            pending.append(
+                {
+                    "id": directory.name,
+                    "sourceName": data.get("sourceName") or directory.name,
+                    "pageCount": len(data.get("pages") or []),
+                    "startedAt": datetime.fromtimestamp(path.stat().st_mtime, UTC).isoformat(),
+                }
+            )
+        return sorted(pending, key=lambda entry: entry["startedAt"], reverse=True)
+
+    def load_pending(self, character_id: str):
+        """The parked import, or None. Returns a ``PreparedPages``."""
+        from .pipeline.run import PreparedPages
+
+        path = self.pending_path(character_id)
+        if not path.exists():
+            return None
+        return PreparedPages.from_json_dict(json.loads(path.read_text(encoding="utf-8")))
+
+    def clear_pending(self, character_id: str) -> None:
+        self.pending_path(character_id).unlink(missing_ok=True)
 
     def store_source(self, character_id: str, pdf_path: Path) -> Path:
         dest = self.source_path(character_id)

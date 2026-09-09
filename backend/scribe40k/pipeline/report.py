@@ -46,8 +46,8 @@ class PageRecord(Strict):
     textSource: Literal["text_layer", "ocr"] = "ocr"
     matchScore: float | None = None
     #: "image" when the page fingerprint placed this page, "text" when the fingerprint
-    #: failed and the transcription identified it instead.
-    matchedBy: Literal["image", "text"] = "image"
+    #: failed and the transcription identified it instead, "user" when a person moved it.
+    matchedBy: Literal["image", "text", "user"] = "image"
     #: Weighted recall against that page's printed vocabulary; set only for "text".
     textScore: float | None = None
     ink: float | None = None
