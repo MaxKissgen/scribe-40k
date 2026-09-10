@@ -30,12 +30,20 @@ function isSheetSlot(target: PageTarget): target is number {
 
 export function ImportAssignment({
   proposal,
-  onDone,
-  onCancelled,
+  mode = "import",
+  onConfirm,
+  onDiscard,
 }: {
   proposal: ImportProposal;
-  onDone: (characterId: string) => void;
-  onCancelled: () => void;
+  /**
+   * What confirming does. An import maps the pages into a new character; an update
+   * compares them with one that already exists and suggests the differences. The screen
+   * is the same either way -- the question "which page is which?" does not change -- but
+   * what the button promises does.
+   */
+  mode?: "import" | "update";
+  onConfirm: (assignment: Record<string, PageTarget>) => Promise<void>;
+  onDiscard: () => Promise<void>;
 }) {
   const [assignment, setAssignment] = useState<Record<number, PageTarget>>(() =>
     Object.fromEntries(proposal.pages.map((page) => [page.pdfPage, page.proposed])),
@@ -71,11 +79,7 @@ export function ImportAssignment({
     setBusy(true);
     setError(null);
     try {
-      const payload = await api.confirmImport(
-        proposal.id,
-        Object.fromEntries(Object.entries(assignment)),
-      );
-      onDone(payload.id);
+      await onConfirm(Object.fromEntries(Object.entries(assignment)));
     } catch (problem) {
       setError(problem instanceof Error ? problem.message : String(problem));
       setBusy(false);
@@ -83,13 +87,13 @@ export function ImportAssignment({
   };
 
   const cancel = async () => {
-    if (!window.confirm("Discard this import? The uploaded file is deleted.")) return;
+    const question =
+      mode === "update"
+        ? "Discard this printout? Nothing has been changed on the sheet."
+        : "Discard this import? The uploaded file is deleted.";
+    if (!window.confirm(question)) return;
     setBusy(true);
-    try {
-      await api.cancelImport(proposal.id);
-    } finally {
-      onCancelled();
-    }
+    await onDiscard();
   };
 
   const partedPages: [number, number][] = Array.from(
@@ -128,7 +132,10 @@ export function ImportAssignment({
         <p className="shell__subtitle">
           {proposal.sourceName} — {proposal.pages.length} page
           {proposal.pages.length === 1 ? "" : "s"}. Drag a page onto the sheet page it is,
-          or leave it where it has been put. Nothing has been read into fields yet.
+          or leave it where it has been put.{" "}
+          {mode === "update"
+            ? "Nothing on your sheet will be changed: what this printout says will be offered as suggestions."
+            : "Nothing has been read into fields yet."}
         </p>
       </header>
 
@@ -142,8 +149,9 @@ export function ImportAssignment({
       )}
       {assignedSheetPages === 0 && (
         <p className="shell__error">
-          No page is assigned to the sheet. Confirming now produces an empty character with
-          everything kept as notes.
+          {mode === "update"
+            ? "No page is assigned to the sheet, so there is nothing to compare against it."
+            : "No page is assigned to the sheet. Confirming now produces an empty character with everything kept as notes."}
         </p>
       )}
       {error && <p className="shell__error">{error}</p>}
@@ -185,13 +193,19 @@ export function ImportAssignment({
           onClick={confirm}
           disabled={busy}
         >
-          {busy ? "Reading the sheet…" : "Looks right — read it"}
+          {busy
+            ? "Reading the sheet…"
+            : mode === "update"
+              ? "Looks right — compare it"
+              : "Looks right — read it"}
         </button>
       </div>
 
       {busy && (
         <p className="shell__note">
-          Mapping six sections with the reasoning model. This takes a minute or two.
+          {mode === "update"
+            ? "Reading the printout and comparing it with your sheet. This takes a minute or two."
+            : "Mapping six sections with the reasoning model. This takes a minute or two."}
         </p>
       )}
     </div>

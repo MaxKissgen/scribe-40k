@@ -61,7 +61,7 @@ export function FlagPopover({ flags, onClose, apply, clearValue = null }: Props)
             </p>
           )}
 
-          {flag.expected !== null && flag.expected !== undefined && (
+          {!isSuggestion(flag) && flag.expected !== null && flag.expected !== undefined && (
             <p className="popover__meta">
               Expected <code>{String(flag.expected)}</code>, sheet reads{" "}
               <code>{String(flag.actual)}</code>
@@ -84,7 +84,12 @@ export function FlagPopover({ flags, onClose, apply, clearValue = null }: Props)
           )}
 
           {flag.evidence?.pdfPage != null && (
-            <Evidence pdfPage={flag.evidence.pdfPage} bbox={flag.evidence.bbox} id={id} />
+            <Evidence
+              pdfPage={flag.evidence.pdfPage}
+              bbox={flag.evidence.bbox}
+              source={flag.evidence.source}
+              id={id}
+            />
           )}
 
           <Alternatives flag={flag} current={get(flag.pointer)}>
@@ -95,31 +100,35 @@ export function FlagPopover({ flags, onClose, apply, clearValue = null }: Props)
             }}
           </Alternatives>
 
-          <div className="popover__actions">
-            <button
-              type="button"
-              className="popover__action popover__action--accept"
-              title="The value in the field is right. Stop asking about it."
-              onClick={() => {
-                void resolveFlag(flag, "accepted");
-                onClose();
-              }}
-            >
-              Keep as is
-            </button>
-            <button
-              type="button"
-              className="popover__action popover__action--clear"
-              title="The extractor read something that is not there. Empty the field."
-              onClick={() => {
-                apply(clearValue, flag);
-                void resolveFlag(flag, "user_fixed");
-                onClose();
-              }}
-            >
-              Wrong
-            </button>
-          </div>
+          {isSuggestion(flag) ? (
+            <SuggestionActions flag={flag} apply={apply} onClose={onClose} />
+          ) : (
+            <div className="popover__actions">
+              <button
+                type="button"
+                className="popover__action popover__action--accept"
+                title="The value in the field is right. Stop asking about it."
+                onClick={() => {
+                  void resolveFlag(flag, "accepted");
+                  onClose();
+                }}
+              >
+                Keep as is
+              </button>
+              <button
+                type="button"
+                className="popover__action popover__action--clear"
+                title="The extractor read something that is not there. Empty the field."
+                onClick={() => {
+                  apply(clearValue, flag);
+                  void resolveFlag(flag, "user_fixed");
+                  onClose();
+                }}
+              >
+                Wrong
+              </button>
+            </div>
+          )}
         </div>
       ))}
     </div>
@@ -137,13 +146,15 @@ export function FlagPopover({ flags, onClose, apply, clearValue = null }: Props)
 function Evidence({
   pdfPage,
   bbox,
+  source,
   id,
 }: {
   pdfPage: number;
   bbox: [number, number, number, number] | null;
+  source?: string | null;
   id: string;
 }) {
-  const href = api.pageImage(id, pdfPage);
+  const href = api.pageImage(id, pdfPage, undefined, source);
 
   if (!bbox) {
     return (
@@ -160,7 +171,7 @@ function Evidence({
     <a href={href} target="_blank" rel="noreferrer" title="Open the full page">
       <img
         className="popover__crop"
-        src={api.pageImage(id, pdfPage, bbox)}
+        src={api.pageImage(id, pdfPage, bbox, source)}
         alt={`The scanned sheet around this field, page ${pdfPage}`}
       />
     </a>
@@ -206,6 +217,111 @@ function Alternatives({
           {alternative}
         </button>
       ))}
+    </div>
+  );
+}
+
+/** True for a flag raised by re-reading a printout rather than by reading the sheet. */
+export function isSuggestion(flag: Flag): boolean {
+  return flag.rule.startsWith("update.");
+}
+
+/** True when a pointer names a whole row of a list rather than a field inside one. */
+function pointsAtARow(pointer: string): boolean {
+  return /\/\d+$/.test(pointer);
+}
+
+/**
+ * What to do about a difference between the sheet and a printout of it.
+ *
+ * Worth its own set of buttons rather than reusing "Keep as is" and "Wrong". Those ask
+ * about a *reading*: is this what the paper says? The question here is about a *change*,
+ * and a reading can be perfectly accurate and still not something you want in your sheet.
+ * The wording differs by what changed, because "Wrong" would mean three different things
+ * across the three cases.
+ */
+function SuggestionActions({
+  flag,
+  apply,
+  onClose,
+}: {
+  flag: Flag;
+  apply: (value: unknown, flag: Flag) => void;
+  onClose: () => void;
+}) {
+  const { append, removeAt, resolveFlag } = useSheet();
+
+  const take = (act: () => void) => () => {
+    act();
+    void resolveFlag(flag, "user_fixed");
+    onClose();
+  };
+
+  const leave = () => {
+    void resolveFlag(flag, "dismissed");
+    onClose();
+  };
+
+  if (flag.rule === "update.added") {
+    // The pointer is where the row would land; its parent is the list to append to.
+    const list = flag.pointer.slice(0, flag.pointer.lastIndexOf("/"));
+    return (
+      <div className="popover__actions">
+        <button
+          type="button"
+          className="popover__action popover__action--accept"
+          onClick={take(() => append(list, flag.expected))}
+        >
+          Add it
+        </button>
+        <button type="button" className="popover__action" onClick={leave}>
+          Leave it out
+        </button>
+      </div>
+    );
+  }
+
+  if (flag.rule === "update.removed") {
+    const row = pointsAtARow(flag.pointer);
+    return (
+      <div className="popover__actions">
+        <button
+          type="button"
+          className="popover__action popover__action--clear"
+          onClick={take(() => (row ? removeAt(flag.pointer) : apply(null, flag)))}
+        >
+          {row ? "Remove it" : "Clear it"}
+        </button>
+        <button type="button" className="popover__action popover__action--accept" onClick={leave}>
+          Keep it
+        </button>
+      </div>
+    );
+  }
+
+  if (flag.rule === "update.changed") {
+    return (
+      <div className="popover__actions">
+        <button
+          type="button"
+          className="popover__action popover__action--accept"
+          onClick={take(() => apply(flag.expected, flag))}
+        >
+          Use {String(flag.expected)}
+        </button>
+        <button type="button" className="popover__action" onClick={leave}>
+          Keep mine
+        </button>
+      </div>
+    );
+  }
+
+  // update.list_vanished, and anything added later: nothing to apply, only to acknowledge.
+  return (
+    <div className="popover__actions">
+      <button type="button" className="popover__action" onClick={leave}>
+        Understood
+      </button>
     </div>
   );
 }

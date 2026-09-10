@@ -159,9 +159,18 @@ def _refresh_rule_flags(character_id: str, rule_flags: list) -> bool:
     return True
 
 
+#: Flag families that :func:`validate_document` cannot regenerate, and which therefore
+#: have to survive a save rather than being recomputed from the document. Each records
+#: something that happened *to* the document rather than something true *of* it: what a
+#: model was unsure of, what OCR could not read, how the pages were classified, and what a
+#: printout said. Leaving "update." out of this list quietly deleted every suggestion the
+#: moment the character was next opened.
+_NOT_RECOMPUTABLE = ("model.", "ocr.", "ingest.", "update.")
+
+
 def _is_rule_flag(rule: str) -> bool:
     """True for flags that :func:`validate_document` regenerates on every save."""
-    return not rule.startswith(("model.", "ocr.", "ingest."))
+    return not rule.startswith(_NOT_RECOMPUTABLE)
 
 
 def _assignment_from(raw: dict[str, object]) -> dict[int, PageTarget]:

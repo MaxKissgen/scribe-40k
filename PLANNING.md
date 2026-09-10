@@ -104,8 +104,8 @@ scribe-40k/
 │   ├── pointer.py        RFC 6901 pointers, the shared address vocabulary
 │   ├── llm/              base · config · mistral · openai_compat · anthropic ·
 │   │                     offline (passthrough + fixtures) · cache · registry
-│   ├── pipeline/         fingerprint · ingest · page_text · sections · mapper ·
-│   │                     validate · report · run
+│   ├── pipeline/         fingerprint · ingest · page_text · print_layout · sections ·
+│   │                     mapper · diff · validate · report · run
 │   ├── export/pdf.py     Playwright print pipeline
 │   ├── tools/            build_assets · record_layout
 │   ├── store.py          JSON-file repository
@@ -118,7 +118,7 @@ scribe-40k/
 │   ├── ImportAssignment.tsx  drag pages onto the sheet page they are
 │   ├── state.tsx         document, autosave, flag index
 │   └── pointer.ts        the TypeScript half of the pointer vocabulary
-└── tests/                328 tests
+└── tests/                390 tests
 ```
 
 ---
@@ -222,6 +222,29 @@ Dropping a page onto an occupied sheet slot swaps the two rather than displacing
 occupant somewhere it has to be hunted for, which also makes it impossible to claim one
 sheet page twice. The server checks anyway.
 
+### Stage 2c · Match against the character's own printout
+
+The blank template is the right reference for a sheet filled in by hand and the wrong one
+for a sheet this program printed, which is the form plus a page of values -- and, once a
+gear list outgrows its printed lines, a page that resembles no template page at all.
+
+A scribe PDF re-imported as a file needs none of this: it carries a text layer. The path
+that matters is print -> write on it -> scan, and a printer does not print text layers.
+So `export_character` records a fingerprint of each page it produced and which sheet page
+it was, and a scan is matched against that first. Same picture, give or take a scanner and
+some handwriting: 0.85 on a simulated print-and-scan where the blank template manages 0.23
+and names the wrong page.
+
+Trusting it needs care, because the spill page is the one that matches weakly -- 0.22
+against its own scan, 0.40 against a *different* printed page -- and only elimination gets
+it home. So the floor is low but the layout is all-or-nothing: two pages matching on their
+own merits establish that the document in the scanner is this printout, and without them
+none of the weak matches count. A scan of somebody else's sheet matches nothing.
+
+The limit is that a recording describes the sheet as printed, so editing the character
+afterwards makes it describe a page that no longer exists. Five printings are kept, the
+best is used, and a poor best falls back to the template.
+
 ### Stage 3 · Map (pluggable reasoning LLM)
 
 Six independent section jobs, each given a narrow sub-schema and only its own pages. They run
@@ -257,6 +280,41 @@ trailing explanations.
 vision-capable. The ticks in the skills grid and the weapon-training block are most of the
 data on this sheet, and OCR renders them all as identical `o` glyphs. Text-only models stay
 usable, with a warning that checkbox recall will be poor.
+
+### Stage 3b · Diff, for an update rather than an import
+
+An update is a printout somebody has written on. Reading it produces a whole candidate
+document, and the obvious thing to do with that document is to save it. That is exactly
+what must not happen: a model reading handwriting is right most of the time and wrong
+*plausibly*, so writing a re-read value over one somebody typed last week destroys work
+with no trace. An import has nothing to lose. An update always does.
+
+So `pipeline/diff.py` compares the candidate with the character and emits flags --
+`update.changed`, `update.added`, `update.removed` -- and writes nothing. They are ordinary
+flags, so the counter, next/previous and mark-all-reviewed work on them without knowing
+what an update is. In the editor a changed value flags its field, an added row appears as
+a ghost where it would land, and a removed row flags the row that is already there.
+
+Three things it has to get right:
+
+- **Rows match by name, then by position.** Position alone reports a whole gear list as
+  edited when one line is inserted at the top. A name that has been extended or cut short
+  still counts as the same row, since that is the commonest edit there is.
+- **Derived and printed values never differ.** A characteristic bonus is arithmetic; a
+  skill's governing characteristic is not something a scanner gets a vote on.
+- **Only the sections that ran are compared.** Upload page 2 alone and page 1 keeps every
+  value it had, because absent from the upload is not the same as emptied.
+
+Removals are the delicate case, since a crossed-out talent and one the reading missed both
+come back absent. They are suggested and never applied; a section whose page failed
+suggests none at all; and a list that comes back empty raises one doubt about the page
+instead of a removal per row.
+
+The printout is kept under `updates/<id>/` with its own pages, because a suggestion is
+about handwriting on *that* paper -- cropping the original scan would show a page nobody
+wrote on. Flag evidence carries a `source` naming which document its page number belongs
+to, and the report grows an `updates` array, since a suggestion outlives the request that
+made it.
 
 ### Stage 4 · Deterministic fill
 
@@ -440,5 +498,11 @@ on the CLI. Adding a provider means one new file implementing two protocols.
   nowhere else for it to live. `tests/test_schema_parity.py` builds a document in which
   every leaf carries a value invented from the schema and pushes it through the models,
   so the two cannot drift apart unnoticed.
+- **A recorded print layout goes stale the moment the character is edited.** It describes
+  the sheet as it was printed, which is the right thing to describe and an unavoidably
+  perishable one. Five are kept and a poor match falls back to the blank template.
+- **An update cannot tell a crossed-out row from one the reading missed.** Both come back
+  absent. Removals are therefore always suggestions, never applied, and suppressed
+  entirely where the page read badly.
 - Copyrighted source PDFs are **gitignored**; only derived, non-reproducible assets are
   committed.

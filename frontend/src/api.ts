@@ -7,6 +7,7 @@ import type {
   ImportProposal,
   PageTarget,
   PendingImport,
+  PendingUpdate,
   Reference,
   UnmappedStatus,
 } from "./types";
@@ -154,11 +155,59 @@ export const api = {
       { method: "POST" },
     ),
 
-  /** URL of a page of the original scan, optionally cropped to a bounding box. */
-  pageImage(id: string, pdfPage: number, bbox?: [number, number, number, number]) {
-    const base = `/api/characters/${id}/pages/${pdfPage}`;
+  /**
+   * URL of a page of the scan, optionally cropped to a bounding box.
+   *
+   * ``source`` names an update when the page belongs to a printout that was read back
+   * into this character rather than to the original import. A suggestion is about
+   * handwriting on *that* paper; cropping the original would show a page nobody wrote on.
+   */
+  pageImage(
+    id: string,
+    pdfPage: number,
+    bbox?: [number, number, number, number],
+    source?: string | null,
+  ) {
+    const base = source
+      ? `/api/characters/${id}/updates/${source}/pages/${pdfPage}`
+      : `/api/characters/${id}/pages/${pdfPage}`;
     if (!bbox) return base;
     const [x0, y0, x1, y1] = bbox;
     return `${base}?x0=${x0}&y0=${y0}&x1=${x1}&y1=${y1}`;
   },
+
+  // -- updates: re-reading a character from a printout ---------------------------------
+
+  listUpdates: (id: string) => request<PendingUpdate[]>(`/api/characters/${id}/updates`),
+
+  /** Upload a marked-up printout. Stops at the page assignment, as an import does. */
+  async startUpdate(id: string, file: File): Promise<ImportProposal & { updateId: string }> {
+    const body = new FormData();
+    body.append("file", file);
+
+    const response = await fetch(`/api/characters/${id}/updates`, { method: "POST", body });
+    if (!response.ok) {
+      let detail = response.statusText;
+      try {
+        detail = (await response.json()).detail ?? detail;
+      } catch {
+        /* not JSON */
+      }
+      throw new Error(detail);
+    }
+    return (await response.json()) as ImportProposal & { updateId: string };
+  },
+
+  getUpdate: (id: string, updateId: string) =>
+    request<ImportProposal & { updateId: string }>(`/api/characters/${id}/updates/${updateId}`),
+
+  /** Read it as assigned and describe how it differs. Writes nothing to the character. */
+  confirmUpdate: (id: string, updateId: string, assignment?: Record<string, PageTarget>) =>
+    request<CharacterPayload & { suggested: number }>(
+      `/api/characters/${id}/updates/${updateId}/confirm`,
+      { method: "POST", body: JSON.stringify({ assignment: assignment ?? null }) },
+    ),
+
+  cancelUpdate: (id: string, updateId: string) =>
+    request<void>(`/api/characters/${id}/updates/${updateId}`, { method: "DELETE" }),
 };

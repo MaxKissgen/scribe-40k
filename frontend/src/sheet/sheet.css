@@ -176,6 +176,11 @@ body {
   cursor: progress;
 }
 
+.button--small {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.8rem;
+}
+
 .pill {
   font-size: 0.72rem;
   padding: 0.1rem 0.45rem;
@@ -1823,4 +1828,41 @@ label.tick input[type="checkbox"] {
   display: flex;
   gap: 0.35rem;
   flex: none;
+}
+
+/* -- Suggestions from a printout ---------------------------------------------------
+ *
+ * A row a re-read printout has and the sheet does not. It sits where it would go if
+ * accepted, and looks like a proposal rather than like data -- the distinction matters
+ * more here than anywhere else in the editor, because the values are plausible and
+ * nobody typed them.
+ */
+
+.repeat__row--suggested {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  position: relative;
+  padding: 0.1rem 1.2rem 0.1rem 0.3rem;
+  border-left: 2px solid var(--focus);
+  background: #eef4ff;
+  border-radius: 2px;
+}
+
+.repeat__suggestion {
+  font-family: var(--font-hand);
+  font-size: 8pt;
+  font-style: italic;
+  color: #2c4b86;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.field__badge--suggested {
+  position: static;
+  flex: none;
+  background: var(--focus);
+  font-size: 0.8rem;
+  line-height: 0.9;
 }

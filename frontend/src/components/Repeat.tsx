@@ -10,9 +10,11 @@
  * spill onto a continuation page when the sheet is printed.
  */
 
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { useSheet } from "../state";
+import type { Flag } from "../types";
+import { FlagPopover } from "./FlagPopover";
 
 interface RepeatProps<T> {
   /** Pointer to the array. */
@@ -46,8 +48,21 @@ export function Repeat<T>({
   printEmptyRows = false,
   className,
 }: RepeatProps<T>) {
-  const { get, set, printMode } = useSheet();
+  const { get, set, printMode, flagsUnder } = useSheet();
   const items = (get<T[]>(pointer) ?? []) as T[];
+
+  // Rows a re-read printout has that the sheet does not. They are shown where they would
+  // land, as ghosts, and are not in the document until someone accepts them -- an update
+  // that wrote itself into the sheet could overwrite a correct value with a plausible
+  // misreading, which is the whole thing the suggestion mechanism exists to prevent.
+  const suggested = printMode
+    ? []
+    : flagsUnder(`${pointer}/`)
+        .filter((flag) => flag.rule === "update.added" && isDirectRow(pointer, flag.pointer))
+        // By where they would land, not by how their pointers happen to sort: /gear/10
+        // comes before /gear/9 as text, and reading a list out of order is confusing in a
+        // way that a numeric sort costs nothing to avoid.
+        .sort((a, b) => rowIndex(pointer, a.pointer) - rowIndex(pointer, b.pointer));
 
   // On screen the section always shows its printed shape, so an empty sheet still looks
   // like the paper. In print mode only real content is rendered -- blank placeholder rows
@@ -115,6 +130,9 @@ export function Repeat<T>({
   return (
     <div className={`repeat ${className ?? ""}`}>
       {rows}
+      {suggested.map((flag) => (
+        <SuggestedRow key={flag.pointer} flag={flag} noun={noun} />
+      ))}
       {!printMode && (
         <button
           type="button"
@@ -151,4 +169,60 @@ function isBlank(item: unknown): boolean {
   if (Array.isArray(item)) return item.every(isBlank);
   if (typeof item === "object") return Object.values(item).every(isBlank);
   return false;
+}
+
+/** True when `candidate` names a row of the list at `pointer`, not something deeper. */
+function isDirectRow(pointer: string, candidate: string): boolean {
+  const rest = candidate.slice(pointer.length + 1);
+  return /^\d+$/.test(rest);
+}
+
+function rowIndex(pointer: string, candidate: string): number {
+  return Number(candidate.slice(pointer.length + 1));
+}
+
+/**
+ * A row the printout has and the sheet does not, shown where it would go.
+ *
+ * Deliberately not an editable row. Until it is accepted it is not in the document, so
+ * there is nothing to edit -- and rendering it as a real row would invite exactly the
+ * confusion this avoids, where a value that only exists as a proposal looks like data.
+ */
+function SuggestedRow({ flag, noun }: { flag: Flag; noun: string }) {
+  const { registerField } = useSheet();
+  const [open, setOpen] = useState(false);
+
+  // Registering it keeps the flag anchored here rather than in the review bar's list of
+  // flags with nowhere to go.
+  useEffect(() => registerField(flag.pointer), [registerField, flag.pointer]);
+
+  return (
+    <div className="repeat__row repeat__row--suggested" data-pointer={flag.pointer}>
+      <span className="repeat__suggestion">{describe(flag.expected)}</span>
+      <button
+        type="button"
+        className="field__badge field__badge--suggested"
+        aria-label={`A ${noun} the printout has and this sheet does not`}
+        onClick={() => setOpen((value) => !value)}
+      >
+        +
+      </button>
+      {open && (
+        <FlagPopover flags={[flag]} apply={() => {}} onClose={() => setOpen(false)} />
+      )}
+    </div>
+  );
+}
+
+/** A row summarised in one line: what it says, in the order the sheet prints it. */
+function describe(row: unknown): string {
+  if (typeof row === "string") return row;
+  if (row && typeof row === "object") {
+    const parts = Object.values(row as Record<string, unknown>)
+      .filter((value) => value !== null && value !== undefined && value !== "")
+      .map((value) => (Array.isArray(value) ? value.join(", ") : String(value)))
+      .filter(Boolean);
+    if (parts.length) return parts.join(" — ");
+  }
+  return "(empty)";
 }

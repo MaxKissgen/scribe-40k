@@ -28,6 +28,7 @@ import type {
 type Route =
   | { name: "list" }
   | { name: "assign"; id: string }
+  | { name: "update"; id: string; updateId: string }
   | { name: "edit"; id: string }
   | { name: "print"; id: string };
 
@@ -42,6 +43,9 @@ function routeFromLocation(): Route {
   // losing it.
   const assign = path.match(/^\/import\/([^/]+)$/);
   if (assign) return { name: "assign", id: assign[1] };
+  // A printout of an existing character, read but not yet compared with it.
+  const update = path.match(/^\/character\/([^/]+)\/update\/([^/]+)$/);
+  if (update) return { name: "update", id: update[1], updateId: update[2] };
   return { name: "list" };
 }
 
@@ -72,6 +76,17 @@ export function App() {
 
   if (route.name === "assign") {
     return <AssignPages key={route.id} id={route.id} navigate={navigate} />;
+  }
+
+  if (route.name === "update") {
+    return (
+      <AssignUpdate
+        key={route.updateId}
+        id={route.id}
+        updateId={route.updateId}
+        navigate={navigate}
+      />
+    );
   }
 
   return (
@@ -209,6 +224,11 @@ function CharacterList({
                   <span className="pill pill--warning">{character.reviewCount} to review</span>
                 )}
               </button>
+              <UpdateButton
+                characterId={character.id}
+                label={`Update ${character.name} from a printout`}
+                navigate={navigate}
+              />
               <button
                 type="button"
                 className="character-list__delete"
@@ -254,8 +274,53 @@ function AssignPages({ id, navigate }: { id: string; navigate: (path: string) =>
   return (
     <ImportAssignment
       proposal={proposal}
-      onDone={(characterId) => navigate(`/character/${characterId}`)}
-      onCancelled={() => navigate("/")}
+      onConfirm={async (assignment) => {
+        const payload = await api.confirmImport(proposal.id, assignment);
+        navigate(`/character/${payload.id}`);
+      }}
+      onDiscard={async () => {
+        await api.cancelImport(proposal.id);
+        navigate("/");
+      }}
+    />
+  );
+}
+
+/** The same screen, for a printout being read back into a character that already exists. */
+function AssignUpdate({
+  id,
+  updateId,
+  navigate,
+}: {
+  id: string;
+  updateId: string;
+  navigate: (path: string) => void;
+}) {
+  const [proposal, setProposal] = useState<ImportProposal | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .getUpdate(id, updateId)
+      .then(setProposal)
+      .catch((problem) => setError(problem instanceof Error ? problem.message : String(problem)));
+  }, [id, updateId]);
+
+  if (error) return <div className="app-error">{error}</div>;
+  if (!proposal) return <div className="app-loading">Loading the pages…</div>;
+
+  return (
+    <ImportAssignment
+      proposal={proposal}
+      mode="update"
+      onConfirm={async (assignment) => {
+        await api.confirmUpdate(id, updateId, assignment);
+        navigate(`/character/${id}`);
+      }}
+      onDiscard={async () => {
+        await api.cancelUpdate(id, updateId);
+        navigate(`/character/${id}`);
+      }}
     />
   );
 }
@@ -301,6 +366,11 @@ function Editor({
               <button type="button" onClick={() => navigate("/")}>
                 ‹ All characters
               </button>
+              <UpdateButton
+                characterId={id}
+                label="Update from a printout"
+                navigate={navigate}
+              />
             </div>
             <ReviewBar onExport={() => window.open(`/print/${id}`, "_blank")} />
           </>
@@ -313,5 +383,61 @@ function Editor({
         <NotePages />
       </div>
     </SheetProvider>
+  );
+}
+
+/**
+ * Read a marked-up printout back into a character.
+ *
+ * Deliberately hung off the character rather than offered on the import screen: an update
+ * has to know which sheet it is updating, and choosing that after the fact -- from a list
+ * of names, having already uploaded -- is a good way to write one player's session onto
+ * another player's character.
+ *
+ * It goes to the same page-assignment screen an import does. Nothing is compared, and
+ * nothing is spent, until that is confirmed.
+ */
+function UpdateButton({
+  characterId,
+  label,
+  navigate,
+}: {
+  characterId: string;
+  label: string;
+  navigate: (path: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  return (
+    <>
+      <label
+        className={`button button--small ${busy ? "button--busy" : ""}`}
+        title="Scan a printout you have written on. Its differences become suggestions."
+      >
+        {busy ? "Reading…" : "Update"}
+        <input
+          type="file"
+          accept="application/pdf"
+          hidden
+          disabled={busy}
+          aria-label={label}
+          onChange={async (event) => {
+            const file = event.target.files?.[0];
+            if (!file) return;
+            setBusy(true);
+            setError(null);
+            try {
+              const proposal = await api.startUpdate(characterId, file);
+              navigate(`/character/${characterId}/update/${proposal.updateId}`);
+            } catch (problem) {
+              setError(problem instanceof Error ? problem.message : String(problem));
+              setBusy(false);
+            }
+          }}
+        />
+      </label>
+      {error && <span className="shell__error">{error}</span>}
+    </>
   );
 }

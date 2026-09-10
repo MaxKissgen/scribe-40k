@@ -48,6 +48,10 @@ interface SheetContextValue {
   get: <T = unknown>(pointer: string) => T | undefined;
   /** Edit the value at a pointer. Applied at once, saved shortly after. */
   set: (pointer: string, value: unknown) => void;
+  /** Append to the list at a pointer. What accepting a suggested row does. */
+  append: (pointer: string, value: unknown) => void;
+  /** Drop the row a pointer names, closing the gap. What accepting a removal does. */
+  removeAt: (pointer: string) => void;
 
   /** Open flags this field is answerable for. */
   flagsAt: (pointer: string) => Flag[];
@@ -221,6 +225,37 @@ export function SheetProvider({
     }
   }, [id, character, flush]);
 
+  /**
+   * Accepting a suggested row, and accepting that one is gone.
+   *
+   * Both work on the list rather than the row, because that is what the change actually
+   * is. Writing to `/gear/7` when the list has seven items is inventing structure, which
+   * the server rightly refuses; splicing by index and writing the whole list back is the
+   * only way to close the gap without leaving a hole where a row used to be.
+   */
+  const append = useCallback(
+    (pointer: string, value: unknown) => {
+      const list = (resolve<unknown[]>(character, pointer) ?? []) as unknown[];
+      set(pointer, [...list, value]);
+    },
+    [character, set],
+  );
+
+  const removeAt = useCallback(
+    (pointer: string) => {
+      const cut = pointer.lastIndexOf("/");
+      const parent = pointer.slice(0, cut);
+      const index = Number(pointer.slice(cut + 1));
+      const list = resolve<unknown[]>(character, parent);
+      if (!Array.isArray(list) || !Number.isInteger(index)) return;
+      set(
+        parent,
+        list.filter((_, position) => position !== index),
+      );
+    },
+    [character, set],
+  );
+
   // Never lose an edit to a closed tab.
   useEffect(() => {
     const handler = (event: BeforeUnloadEvent) => {
@@ -375,6 +410,8 @@ export function SheetProvider({
     reference,
     get,
     set,
+    append,
+    removeAt,
     flagsAt,
     flagsUnder,
     registerField,

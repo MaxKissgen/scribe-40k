@@ -29,6 +29,8 @@ export interface Evidence {
   sheetPage: number | null;
   snippet: string | null;
   bbox: [number, number, number, number] | null;
+  /** Which document the page number belongs to: null for the original scan, else an update. */
+  source: string | null;
 }
 
 export interface Flag {
@@ -116,6 +118,13 @@ export interface ImportProposal {
   sourceName: string;
   sheetPageCount: number;
   pages: PageProposal[];
+}
+
+/** A printout of a character, read but not yet turned into suggestions. */
+export interface PendingUpdate {
+  id: string;
+  sourceName: string;
+  pageCount: number;
 }
 
 /** An upload sitting on the assignment screen, listed so it cannot be lost. */

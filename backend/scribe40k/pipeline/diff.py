@@ -55,6 +55,13 @@ _ROW_KEYS = ("name", "subject", "advance", "weapon", "rank")
 #: (best)" is an edit to one row, not one row deleted and another added.
 _SAME_ROW = 0.8
 
+#: ...and the length at which one name being the start of another is enough on its own.
+#: Similarity alone is not: "Scibilia" against "Scibilia 7D (oldest 5D)" scores 0.55,
+#: because most of the longer string is absent from the shorter one -- yet a name that has
+#: been shortened or extended is the commonest edit there is, and reporting it as a
+#: deletion and an unrelated addition loses whatever else was on the row.
+_PREFIX_ENOUGH = 4
+
 #: A list that empties completely is far more likely to be a page that read badly than a
 #: player who crossed out everything on it. Below this many rows, take it at face value.
 _SUSPICIOUS_WIPE = 3
@@ -244,9 +251,9 @@ def _pair_rows(was: list, now: list) -> tuple[list[tuple[int, int]], list[int], 
         for new_index in spare_new:
             if not new_keys[new_index]:
                 continue
-            ratio = difflib.SequenceMatcher(None, key, new_keys[new_index]).ratio()
-            if ratio >= score:
-                best, score = new_index, ratio
+            similarity = _similarity(key, new_keys[new_index])
+            if similarity >= score:
+                best, score = new_index, similarity
         if best is not None:
             pairs.append((old_index, best))
             spare_old.remove(old_index)
@@ -265,6 +272,19 @@ def _pair_rows(was: list, now: list) -> tuple[list[tuple[int, int]], list[int], 
         spare_new.remove(new_index)
 
     return sorted(pairs), spare_old, spare_new
+
+
+def _similarity(one: str, other: str) -> float:
+    """How likely two row names are to be the same row.
+
+    Plain string similarity, except that one name starting with the other counts as a
+    match outright once it is long enough to mean something. A row does not stop being
+    itself because somebody wrote out the rest of its name, or stopped bothering to.
+    """
+    shorter, longer = sorted((one, other), key=len)
+    if len(shorter) >= _PREFIX_ENOUGH and longer.startswith(shorter):
+        return 1.0
+    return difflib.SequenceMatcher(None, one, other).ratio()
 
 
 def _quote(value: object) -> str:

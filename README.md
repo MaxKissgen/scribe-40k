@@ -134,7 +134,37 @@ automatically, and you can add your own.
 
 #### Export
 
-**Export PDF** prints the sheet, note pages included.
+**Export PDF** prints the sheet, note pages included. Each export also records what its
+pages looked like, which is what makes the printout readable again later.
+
+#### Updating a sheet from a printout
+
+Print a character, play with it, cross a talent out and add two gear lines in the margin,
+scan it back. **Update** on the character — in the list, or in the editor — reads that
+printout and tells you how it differs from your sheet.
+
+It never writes to the sheet. A model reading handwriting is right most of the time, and
+the times it is wrong are plausible — "Space" for "Spare parts" — so saving a re-read
+document over a character would destroy work with no trace and no way to tell afterwards.
+Instead every difference becomes a suggestion, shown where the value lives:
+
+- a **changed** value flags its field, offering the printout's reading beside yours;
+- an **added** row appears as a ghost line where it would go, tinted and italic, not in
+  the sheet until you accept it;
+- a **removed** row flags the row you already have, asking whether it was crossed out or
+  simply missed by the reading.
+
+Accepting one is a click; so is leaving it. The crop in each popover is of *that
+printout*, since that is the paper somebody wrote on.
+
+Only the pages you uploaded are compared. Scan page 2 alone and page 1 keeps every value
+it had, because absent from the upload is not the same as emptied. A page that failed to
+read suggests no removals at all, and a list that comes back empty raises one doubt about
+the page rather than a removal per row.
+
+A sheet with more gear than the printed lines hold prints as more pages than the form has.
+That is handled: the assignment screen lets several pages of the upload cover one sheet
+page — "part 1 of 2, read as one page" — and they are read together.
 
 ### From the command line
 
@@ -147,7 +177,8 @@ scribe serve                                  # run the editor
 ```
 
 `extract` takes the proposed page assignment without asking — there is nobody to ask on a
-command line. Import through the browser when you want to check it first.
+command line. Import through the browser when you want to check it first, and to update an
+existing character from a printout.
 
 Model choice can be overridden per run:
 
@@ -219,6 +250,19 @@ validation.
 . Pages are therefore classified by matching
 against known layouts, blanks are dropped, and anything unrecognised is surfaced rather
 than discarded.
+
+**A printout of a scribe sheet is matched against itself.** A PDF this program wrote
+carries a text layer and identifies itself for nothing — but the useful path is to print
+it, write on it and scan it back, and a printer does not print text layers. So every
+export records a fingerprint of each of its pages, and a scan of that printout is matched
+against the character's own paper rather than the blank form. On a simulated
+print-and-scan the recording scores 0.85 where the blank template scores 0.23 and names
+the wrong page. It also already knows which sheet page spilled onto two.
+
+The limit is one that cannot be designed away: a recording describes the sheet as it was
+printed, so editing a character afterwards makes the recording describe a page that no
+longer exists. The last five printings are kept and the best is used; a poor best falls
+back to the blank template, and the assignment screen says which reference matched.
 
 **A page gets two chances to be recognised, and a note page is the last resort.** Matching
 against known layouts compares page *images*, which assumes a flat rectangle photographed

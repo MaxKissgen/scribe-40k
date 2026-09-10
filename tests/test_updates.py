@@ -579,3 +579,100 @@ class TestTheCrops:
         client, _api, _ = stubbed
 
         assert client.get("/api/characters/..%2F..%2Fetc/pages/1").status_code in (400, 404)
+
+
+class TestSuggestionsSurvive:
+    """They record what a printout said, which no amount of re-validating can recompute.
+
+    The rule flags are regenerated from the document on every save, and a suggestion that
+    was mistaken for one vanished the moment the character was next opened -- silently,
+    since a flag disappearing looks exactly like a flag resolved.
+    """
+
+    def _one_suggestion(self, client, one_page_pdf, answers):
+        printout = copy.deepcopy(TestConfirmingAnUpdate.UNCHANGED_PAGE_TWO)
+        printout["gear"].append({"name": "Frag grenade", "quantity": 2, "notes": None})
+        answers["equipment"] = printout
+        update_id = _start(client, one_page_pdf).json()["updateId"]
+        client.post(
+            f"/api/characters/barck/updates/{update_id}/confirm", json={"assignment": {"1": 2}}
+        )
+
+    def _suggestions(self, api):
+        return [f for f in api.store.load_report("barck").flags if f.rule.startswith("update.")]
+
+    def test_opening_the_character_does_not_lose_them(self, stubbed, one_page_pdf, answers) -> None:
+        client, api, _ = stubbed
+        self._one_suggestion(client, one_page_pdf, answers)
+        before = len(self._suggestions(api))
+
+        client.get("/api/characters/barck")
+
+        assert before > 0
+        assert len(self._suggestions(api)) == before
+
+    def test_editing_the_character_does_not_lose_them(self, stubbed, one_page_pdf, answers) -> None:
+        client, api, _ = stubbed
+        self._one_suggestion(client, one_page_pdf, answers)
+        before = len(self._suggestions(api))
+
+        client.patch(
+            "/api/characters/barck",
+            json={"operations": [{"pointer": "/bio/quirk", "value": "Nervous"}]},
+        )
+
+        assert len(self._suggestions(api)) == before
+
+    def test_accepting_one_still_resolves_it(self, stubbed, one_page_pdf, answers) -> None:
+        """Surviving revalidation must not mean surviving the user's answer."""
+        client, api, _ = stubbed
+        self._one_suggestion(client, one_page_pdf, answers)
+        [suggestion] = self._suggestions(api)
+
+        client.post(
+            "/api/characters/barck/flags",
+            json={"pointer": suggestion.pointer, "rule": suggestion.rule, "status": "user_fixed"},
+        )
+        client.get("/api/characters/barck")
+
+        assert [f.status for f in self._suggestions(api)] == ["user_fixed"]
+
+
+class TestNamesThatGrewOrShrank:
+    """The commonest edit to a row is to its name, and similarity alone misses it.
+
+    "Scibilia" against "Scibilia 7D (oldest 5D)" scores 0.55 as strings, because most of
+    the longer one is absent from the shorter -- so the row read as deleted and a
+    different one added, losing the quantity and notes beside it.
+    """
+
+    def test_a_name_written_out_in_full_is_the_same_row(self) -> None:
+        current = _character()
+        candidate = copy.deepcopy(current)
+        candidate["gear"][0]["name"] = "Autogun, best quality, with sling"
+
+        flags = _suggest(current, candidate)
+
+        assert [flag.rule for flag in flags] == ["update.changed"]
+        assert flags[0].pointer == "/gear/0/name"
+
+    def test_a_name_cut_short_is_the_same_row(self) -> None:
+        current = _character()
+        current["gear"][0]["name"] = "Autogun, best quality, with sling"
+        candidate = copy.deepcopy(current)
+        candidate["gear"][0]["name"] = "Autogun"
+
+        assert [flag.rule for flag in _suggest(current, candidate)] == ["update.changed"]
+
+    def test_a_short_prefix_is_not_enough(self) -> None:
+        """Otherwise "Axe" would claim "Axe of the Emperor's Wrath" and anything else
+        beginning with those letters."""
+        current = _character()
+        current["gear"][0]["name"] = "Axe"
+        candidate = copy.deepcopy(current)
+        candidate["gear"][0]["name"] = "Axiomatic cogitator"
+
+        assert {flag.rule for flag in _suggest(current, candidate)} == {
+            "update.added",
+            "update.removed",
+        }
