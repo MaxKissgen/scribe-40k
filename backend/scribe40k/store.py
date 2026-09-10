@@ -10,6 +10,8 @@ data outlives this program.
         pending.json     an import read but not yet confirmed; deleted once it is
         source.pdf       the uploaded scan, kept for the review crops
         pages/           rendered page images
+        prints/          what each exported PDF looked like, for reading a marked-up
+                         printout of it back in
 
 A directory with a ``pending.json`` and no ``character.json`` is an import waiting for
 someone to confirm which page is which. It does not appear in the character list, because
@@ -33,6 +35,7 @@ from .pipeline.report import ExtractionReport
 CHARACTER_FILE = "character.json"
 REPORT_FILE = "report.json"
 PENDING_FILE = "pending.json"
+PRINTS_DIR = "prints"
 SOURCE_FILE = "source.pdf"
 PAGES_DIR = "pages"
 
@@ -74,6 +77,9 @@ class CharacterStore:
 
     def pages_dir(self, character_id: str) -> Path:
         return self.directory(character_id) / PAGES_DIR
+
+    def prints_dir(self, character_id: str) -> Path:
+        return self.directory(character_id) / PRINTS_DIR
 
     def source_path(self, character_id: str) -> Path:
         return self.directory(character_id) / SOURCE_FILE
@@ -160,6 +166,41 @@ class CharacterStore:
         payload = json.dumps(prepared.to_json_dict(), indent=2, ensure_ascii=False)
         _atomic_write(path, payload + "\n")
         return path
+
+    def save_print_layout(self, character_id: str, layout) -> Path:
+        """Remember what a printing of this character looked like.
+
+        Only the most recent few are kept. Older ones describe a character that has since
+        been edited, so they get less useful the further back they go, and a scan is
+        matched against all of them anyway.
+        """
+        directory = self.prints_dir(character_id)
+        directory.mkdir(parents=True, exist_ok=True)
+        payload = json.dumps(layout.to_json_dict(), indent=2, ensure_ascii=False)
+        path = directory / f"{layout.recorded_at.replace(':', '')}-{layout.id}.json"
+        _atomic_write(path, payload + "\n")
+
+        from .pipeline.print_layout import KEEP
+
+        for stale in sorted(directory.glob("*.json"))[:-KEEP]:
+            stale.unlink(missing_ok=True)
+        return path
+
+    def load_print_layouts(self, character_id: str) -> list:
+        """Every remembered printing, newest last."""
+        from .pipeline.print_layout import PrintLayout
+
+        directory = self.prints_dir(character_id)
+        if not directory.is_dir():
+            return []
+
+        layouts = []
+        for path in sorted(directory.glob("*.json")):
+            try:
+                layouts.append(PrintLayout.from_json_dict(json.loads(path.read_text("utf-8"))))
+            except (json.JSONDecodeError, OSError, KeyError):
+                continue
+        return layouts
 
     def list_pending(self) -> list[dict]:
         """Imports read but never confirmed.

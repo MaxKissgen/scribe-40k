@@ -132,9 +132,10 @@
             "enum": [
               "image",
               "text",
+              "print",
               "user"
             ],
-            "description": "Which signal placed this page. 'image' is the page fingerprint. 'text' means the fingerprint could not place it -- a photograph taken at an angle defeats it -- and the page was identified from the printed words its transcription contains instead. 'user' means a person overrode both on the assignment screen."
+            "description": "Which signal placed this page. 'image' is the page fingerprint against the blank template. 'print' is the fingerprint against what this character looked like when it was last exported, which is the better reference for a scan of a marked-up printout. 'text' means neither could place it -- a photograph taken at an angle defeats both -- and the page was identified from the printed words its transcription contains instead. 'user' means a person overrode them all on the assignment screen."
           },
           "textScore": {
             "type": [

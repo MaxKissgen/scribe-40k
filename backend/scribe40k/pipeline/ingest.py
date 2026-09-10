@@ -102,6 +102,10 @@ class IngestedPage:
     image_size: tuple[int, int] | None = None
     #: Human-readable explanation, surfaced in the UI for unrecognised pages.
     note: str = ""
+    #: The coarse vector this page was classified by. Kept only for the length of a run,
+    #: so a later pass can compare it against something other than the blank template
+    #: without rasterising the PDF a second time; never serialised.
+    fingerprint: np.ndarray | None = None
 
 
 @dataclass
@@ -364,7 +368,9 @@ def ingest(
                 )
             )
             if not blank:
-                candidates[index + 1] = fingerprint_from_gray(gray)
+                vector = fingerprint_from_gray(gray)
+                candidates[index + 1] = vector
+                result.pages[-1].fingerprint = vector
 
         # Pass 2: resolve all inked pages against the template together.
         assignment = assign_sheet_pages(candidates, templates)

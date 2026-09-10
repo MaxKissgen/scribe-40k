@@ -162,15 +162,36 @@ def export_character(
     options: ExportOptions | None = None,
     base_url: str | None = None,
 ) -> Path:
-    """Export one character to PDF.
+    """Export one character to PDF, and remember what the pages looked like.
 
     Point ``base_url`` at an already-running server to reuse it; otherwise one is started
     for the duration of the call.
+
+    The remembering is the important half for anything that comes back. A PDF this program
+    wrote can be re-imported from its text layer for nothing -- but the path people
+    actually take is to print it, mark it up and scan it, and a printer does not print
+    text layers. What comes back is a photograph of a page the blank template does not
+    describe, especially where a long gear list has spilled onto a page of its own. So the
+    layout is recorded here, at the one moment we know exactly what was on the paper.
     """
     if base_url:
-        return render_url_to_pdf(
+        rendered = render_url_to_pdf(
             f"{base_url.rstrip('/')}/print/{character_id}", destination, options
         )
+    else:
+        with temporary_server() as url:
+            rendered = render_url_to_pdf(f"{url}/print/{character_id}", destination, options)
 
-    with temporary_server() as url:
-        return render_url_to_pdf(f"{url}/print/{character_id}", destination, options)
+    _remember_layout(character_id, rendered)
+    return rendered
+
+
+def _remember_layout(character_id: str, pdf_path: Path) -> None:
+    """Record this printing. Never fatal: an export that worked is still an export."""
+    try:
+        from .. import api
+        from ..pipeline.print_layout import record
+
+        api.store.save_print_layout(character_id, record(pdf_path, source_name=pdf_path.name))
+    except Exception:  # noqa: BLE001 - a diagnostic aid must not break the export
+        pass

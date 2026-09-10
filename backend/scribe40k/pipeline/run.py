@@ -36,6 +36,7 @@ from .ingest import (
 )
 from .mapper import map_sheet
 from .page_text import identify_pages
+from .print_layout import PrintLayout, match_against
 from .report import (
     Evidence,
     ExtractionReport,
@@ -439,12 +440,17 @@ def prepare(
     *,
     image_dir: Path,
     source_name: str | None = None,
+    printed_as: list[PrintLayout] | None = None,
     progress=None,
 ) -> PreparedPages:
     """Read, classify and transcribe a PDF, and propose what each page is.
 
     The cheap half of the pipeline: no reasoning call is made, so the result can be shown
     to the user, argued with, and thrown away.
+
+    ``printed_as`` is what this character looked like when it was last printed, for a scan
+    of a marked-up printout. It is a much better reference than the blank template -- the
+    same page, give or take a scanner and some handwriting -- so it is consulted first.
     """
 
     def say(message: str) -> None:
@@ -461,6 +467,10 @@ def prepare(
         f"  {len(ingested.pages)} pages: {matched} matched the sheet, "
         f"{blanks} blank, {len(ingested.unrecognised_pages)} unrecognised"
     )
+
+    recognised = _match_against_printings(ingested, printed_as or [])
+    if recognised:
+        say(f"  {recognised} page(s) recognised as this character's own printout")
 
     say(f"Transcribing {len(ingested.sheet_pages)} page(s)")
     transcriptions = _transcribe(ingested, ocr_provider)
@@ -491,6 +501,47 @@ def prepare(
         transcriptions=transcriptions,
         proposal=propose_assignment(ingested),
     )
+
+
+def _match_against_printings(result: IngestResult, layouts: list[PrintLayout]) -> int:
+    """Reclassify pages against what this character looked like when it was printed.
+
+    Overrides the blank template rather than deferring to it. The template answers "which
+    page of the form is this?"; a recorded printing answers "which page of *this sheet* is
+    this?", which is a stronger question with a stronger answer -- on a simulated
+    print-and-scan the recording scored 0.85 where the template scored 0.23 and named the
+    wrong page.
+    """
+    if not layouts:
+        return 0
+
+    vectors = {
+        page.pdf_page: page.fingerprint
+        for page in result.pages
+        if page.fingerprint is not None and page.kind is not PageKind.BLANK
+    }
+    found = match_against(vectors, layouts)
+
+    for pdf_page, reference in found.items():
+        page = result.page_for_pdf(pdf_page)
+        if page is None:
+            continue
+        page.kind = PageKind.SHEET
+        page.sheet_page = reference.sheet_page
+        page.matched_by = "print"
+        page.match_score = reference.score
+        part = (
+            ""
+            if reference.part == 1
+            else f", part {reference.part} of it (a list too long for its printed lines)"
+        )
+        page.note = (
+            f"Recognised as sheet page {reference.sheet_page}{part} of this character's own "
+            f"printout ({reference.score:.0%} match). If the sheet was edited after it was "
+            "printed, check this."
+        )
+
+    return len(found)
 
 
 def propose_assignment(result: IngestResult) -> dict[int, PageTarget]:
