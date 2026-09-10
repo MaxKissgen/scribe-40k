@@ -113,18 +113,29 @@ class IngestResult:
 
     @property
     def sheet_pages(self) -> list[IngestedPage]:
-        """The pages that carry character data, in sheet order."""
+        """The pages that carry character data, in sheet order.
+
+        More than one may carry the same sheet page: a sheet with more gear than the
+        printed lines allow spills onto a further page when exported, and a scan of that
+        printout has two pages where the form has one. Ties break on position in the
+        upload, which is the order they were meant to be read in.
+        """
         return sorted(
             (p for p in self.pages if p.kind is PageKind.SHEET),
-            key=lambda p: p.sheet_page or 0,
+            key=lambda p: (p.sheet_page or 0, p.pdf_page),
         )
+
+    def pages_for(self, sheet_page: int) -> list[IngestedPage]:
+        """Every uploaded page carrying this sheet page, in reading order."""
+        return [p for p in self.sheet_pages if p.sheet_page == sheet_page]
 
     @property
     def unrecognised_pages(self) -> list[IngestedPage]:
         return [p for p in self.pages if p.kind is PageKind.UNRECOGNISED]
 
     def page_for(self, sheet_page: int) -> IngestedPage | None:
-        return next((p for p in self.pages if p.sheet_page == sheet_page), None)
+        """The first uploaded page carrying this sheet page."""
+        return next(iter(self.pages_for(sheet_page)), None)
 
     def page_for_pdf(self, pdf_page: int) -> IngestedPage | None:
         """By position in the uploaded file, for the pages that matched no sheet page."""

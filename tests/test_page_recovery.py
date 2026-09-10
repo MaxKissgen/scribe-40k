@@ -84,14 +84,57 @@ class TestIdentifyPages:
         by a note page that happens to mention psychic powers."""
         assert identify_pages({1: "psychic powers"}, mini) == {}
 
-    def test_claiming_is_one_to_one(self, mini) -> None:
-        """Two photographs of the same page cannot both be it."""
-        identified = identify_pages({1: MINI[1], 2: MINI[1]}, mini)
+    def test_only_one_page_may_claim_a_sheet_page(self, mini) -> None:
+        """A sheet has one of each page, so the first pass hands each out once."""
+        identified = identify_pages({1: MINI[1], 7: MINI[1]}, mini)
 
-        assert len(identified) == 1
+        assert len({sheet for sheet, _ in identified.values()}) == 1
 
-    def test_a_page_already_matched_by_its_image_is_not_reclaimed(self, mini) -> None:
-        assert identify_pages({1: MINI[1]}, mini, already_claimed={1}) == {}
+    def test_a_page_already_placed_is_not_reclaimed(self, mini) -> None:
+        assert 1 not in identify_pages({1: MINI[1]}, mini, already_placed={1: 1})
+
+
+class TestContinuations:
+    """A sheet page that outgrew its printed lines occupies two pages of the upload.
+
+    On a real overflowing export the spill page scored 0.52 against sheet page 2 -- ample
+    -- and became a note page anyway, because one-to-one claiming had already given page 2
+    to the half that came first.
+    """
+
+    #: What the rest of a spilled page looks like: the rows that did not fit, and none of
+    #: the headings. Below the threshold to claim a page outright -- which is the whole
+    #: difficulty, since it is still unmistakably part of that page.
+    SPILL = "creatures chameleon float"
+
+    def test_the_rest_of_a_page_joins_it(self, mini) -> None:
+        identified = identify_pages({4: MINI[2], 5: self.SPILL}, mini)
+
+        assert identified[4][0] == 2
+        assert identified[5][0] == 2, "the spill belongs to the page it spilled from"
+
+    def test_it_can_join_a_page_the_image_matcher_placed(self, mini) -> None:
+        """The usual shape: the first half is recognisable enough for the fingerprint and
+        the second half is not."""
+        identified = identify_pages({5: self.SPILL}, mini, already_placed={4: 2})
+
+        assert identified == {5: (2, pytest.approx(0.29, abs=0.05))}
+
+    def test_it_must_directly_follow_the_page_it_continues(self, mini) -> None:
+        """Spill is a property of printing: the overflow of a page is the next page. A
+        page further along is something else, whatever words are on it."""
+        identified = identify_pages({9: self.SPILL}, mini, already_placed={4: 2, 5: 1})
+
+        assert identified == {}
+
+    def test_nothing_starts_a_claim_this_way(self, mini) -> None:
+        """A continuation only makes sense as the continuation of something."""
+        assert identify_pages({1: self.SPILL}, mini) == {}
+
+    def test_unrelated_text_does_not_attach_to_its_neighbour(self, mini) -> None:
+        notes = "Owed 200 thrones to Vex; do not go back to the Fifth Quadrant."
+
+        assert identify_pages({5: notes}, mini, already_placed={4: 2}) == {}
 
 
 # --------------------------------------------------------------------------------------

@@ -24,7 +24,6 @@ function sameTarget(a: PageTarget, b: PageTarget): boolean {
   return a === b;
 }
 
-/** Sheet slots hold one page each; the notes and skip buckets hold any number. */
 function isSheetSlot(target: PageTarget): target is number {
   return typeof target === "number";
 }
@@ -54,23 +53,16 @@ export function ImportAssignment({
   /**
    * Move a page onto a target.
    *
-   * Dropping onto an occupied sheet slot swaps the two, rather than displacing the
-   * occupant somewhere the user has to go and find. Two pages can then never claim one
-   * sheet page, which the server would refuse anyway.
+   * Every slot holds as many pages as you put in it, sheet pages included. That is not
+   * laxity: a character with more gear than the printed lines hold spills onto a further
+   * page when exported, so a scan of that printout has two pages where the form has one,
+   * and they are read together as the one page they are. Order within a slot follows
+   * position in the upload, which is the order they were printed in.
    */
   const assign = (pdfPage: number, target: PageTarget) => {
-    setAssignment((current) => {
-      const from = current[pdfPage];
-      if (sameTarget(from, target)) return current;
-
-      const next = { ...current, [pdfPage]: target };
-      if (isSheetSlot(target)) {
-        for (const [other, value] of Object.entries(current)) {
-          if (Number(other) !== pdfPage && sameTarget(value, target)) next[Number(other)] = from;
-        }
-      }
-      return next;
-    });
+    setAssignment((current) =>
+      sameTarget(current[pdfPage], target) ? current : { ...current, [pdfPage]: target },
+    );
   };
 
   const assignedSheetPages = Object.values(assignment).filter(isSheetSlot).length;
@@ -99,6 +91,17 @@ export function ImportAssignment({
       onCancelled();
     }
   };
+
+  const partedPages: [number, number][] = Array.from(
+    Object.values(assignment)
+      .filter(isSheetSlot)
+      .reduce(
+        (counts, sheet) => counts.set(sheet, (counts.get(sheet) ?? 0) + 1),
+        new Map<number, number>(),
+      ),
+  )
+    .filter(([, count]) => count > 1)
+    .sort(([a], [b]) => a - b);
 
   const slots: { target: PageTarget; label: string; hint: string }[] = [
     ...Array.from({ length: proposal.sheetPageCount }, (_, index) => ({
@@ -129,6 +132,14 @@ export function ImportAssignment({
         </p>
       </header>
 
+      {partedPages.length > 0 && (
+        <p className="shell__note">
+          {partedPages.map(([sheet, count]) => `sheet page ${sheet} is covered by ${count} pages`)
+            .join(", ")}
+          . They will be read together as one page — which is what a list too long for its
+          printed lines looks like once it has been printed.
+        </p>
+      )}
       {assignedSheetPages === 0 && (
         <p className="shell__error">
           No page is assigned to the sheet. Confirming now produces an empty character with
@@ -143,17 +154,18 @@ export function ImportAssignment({
             key={String(slot.target)}
             label={slot.label}
             hint={slot.hint}
-            single={isSheetSlot(slot.target)}
             dragging={dragging !== null}
             onDrop={(pdfPage) => assign(pdfPage, slot.target)}
           >
-            {at(slot.target).map((pdfPage) => (
+            {at(slot.target).map((pdfPage, index, all) => (
               <PageCard
                 key={pdfPage}
                 characterId={proposal.id}
                 page={pages.get(pdfPage)!}
                 target={assignment[pdfPage]}
                 slots={slots}
+                // Only a sheet page has parts. Two note pages are two note pages.
+                part={isSheetSlot(slot.target) && all.length > 1 ? [index + 1, all.length] : null}
                 onDragStart={() => setDragging(pdfPage)}
                 onDragEnd={() => setDragging(null)}
                 onChange={(target) => assign(pdfPage, target)}
@@ -198,14 +210,12 @@ const SHEET_PAGE_HINTS = [
 function Slot({
   label,
   hint,
-  single,
   dragging,
   onDrop,
   children,
 }: {
   label: string;
   hint: string;
-  single: boolean;
   dragging: boolean;
   onDrop: (pdfPage: number) => void;
   children: React.ReactNode;
@@ -217,7 +227,6 @@ function Slot({
     <section
       className={[
         "assign__slot",
-        single ? "assign__slot--single" : "",
         dragging ? "assign__slot--armed" : "",
         over ? "assign__slot--over" : "",
         count === 0 ? "assign__slot--empty" : "",
@@ -254,6 +263,7 @@ function PageCard({
   page,
   target,
   slots,
+  part,
   onDragStart,
   onDragEnd,
   onChange,
@@ -262,6 +272,8 @@ function PageCard({
   page: PageProposal;
   target: PageTarget;
   slots: { target: PageTarget; label: string }[];
+  /** ``[n, of]`` when this sheet page arrived as several pages, else null. */
+  part: [number, number] | null;
   onDragStart: () => void;
   onDragEnd: () => void;
   onChange: (target: PageTarget) => void;
@@ -293,6 +305,11 @@ function PageCard({
 
       <div className="assign__page-body">
         <strong>Page {page.pdfPage}</strong>
+        {part && (
+          <span className="assign__part">
+            part {part[0]} of {part[1]} — read as one page
+          </span>
+        )}
         <Confidence page={page} />
 
         <select

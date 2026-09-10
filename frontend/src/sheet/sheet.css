@@ -1742,6 +1742,11 @@ label.tick input[type="checkbox"] {
   font-size: 0.7rem;
 }
 
+.assign__part {
+  font-size: 0.7rem;
+  color: var(--focus);
+}
+
 .assign__why--weak {
   color: var(--flag-warning);
 }

@@ -40,6 +40,14 @@ MATCH_THRESHOLD = 0.35
 #: only 6, so this is a real constraint rather than a formality.
 MIN_MATCHED_WEIGHT = 3.0
 
+#: What a *continuation* of an already-claimed page must reach. Lower than the first pass
+#: on purpose: the second half of a spilled page carries the rows that would not fit and
+#: only some of the headings, so it can never look as much like the page as the first half
+#: does. It is judged against a page that has already been claimed, which is a far weaker
+#: claim to be making than "this is sheet page 2 and nothing else is".
+CONTINUATION_THRESHOLD = 0.2
+CONTINUATION_MIN_WEIGHT = 2.0
+
 
 def tokenise(text: str) -> set[str]:
     return set(_WORD.findall(text.lower()))
@@ -96,23 +104,29 @@ def identify_pages(
     transcriptions: dict[int, str],
     signatures: dict[int, dict[str, float]],
     *,
-    already_claimed: set[int] = frozenset(),  # type: ignore[assignment]
+    already_placed: dict[int, int] | None = None,
 ) -> dict[int, tuple[int, float]]:
     """Match transcriptions to the sheet pages they came from.
 
-    ``transcriptions`` maps PDF page to text; the result maps PDF page to
-    ``(sheet page, recall)`` for those confident enough to claim one.
+    ``transcriptions`` maps PDF page to text, for the pages still looking for a home.
+    ``already_placed`` maps PDF page to sheet page for the ones the image matcher has
+    already settled. The result maps PDF page to ``(sheet page, recall)``.
 
-    Claiming is one-to-one and best-first, for the same reason the image matcher does it:
-    a sheet has one of each page, so letting the confident matches take theirs first
-    resolves the doubtful ones by elimination.
+    Two passes. The first is one-to-one and best-first, for the same reason the image
+    matcher does it: a sheet has one of each page, so letting the confident matches take
+    theirs first resolves the doubtful ones by elimination. The second lets what is left
+    attach to a page already taken -- see :func:`_continuations`.
     """
+    placed = dict(already_placed or {})
+    claimed = set(placed.values())
+
     ranked = sorted(
         (
             (matched, recall, pdf_page, sheet_page)
             for pdf_page, text in transcriptions.items()
+            if pdf_page not in placed
             for sheet_page, signature in signatures.items()
-            if sheet_page not in already_claimed
+            if sheet_page not in claimed
             for recall, matched in [score(text, signature)]
             if recall >= MATCH_THRESHOLD and matched >= MIN_MATCHED_WEIGHT
         ),
@@ -120,11 +134,60 @@ def identify_pages(
     )
 
     identified: dict[int, tuple[int, float]] = {}
-    taken: set[int] = set(already_claimed)
     for _matched, recall, pdf_page, sheet_page in ranked:
-        if pdf_page in identified or sheet_page in taken:
+        if pdf_page in identified or sheet_page in claimed:
             continue
         identified[pdf_page] = (sheet_page, recall)
-        taken.add(sheet_page)
+        claimed.add(sheet_page)
 
+    settled = {**placed, **{page: where for page, (where, _) in identified.items()}}
+    identified.update(_continuations(transcriptions, signatures, settled=settled))
     return identified
+
+
+def _continuations(
+    transcriptions: dict[int, str],
+    signatures: dict[int, dict[str, float]],
+    *,
+    settled: dict[int, int],
+) -> dict[int, tuple[int, float]]:
+    """Pages that are the rest of a page already claimed by another.
+
+    A sheet page is not always one page of the upload. A character with more gear than the
+    printed lines hold spills onto a further page when exported, so a scan of that printout
+    has two pages where the form has one -- and the second half looks like sheet page 2
+    without looking like it *more* than the first half does. One-to-one claiming rejected
+    those outright: on a real overflowing export the spill page scored 0.52 against sheet
+    page 2, comfortably enough to be recognised, and became a note page purely because the
+    first half got there first.
+
+    Two things keep this from swallowing genuine note pages. A continuation may only ever
+    join a page that is already claimed -- nothing *starts* a claim this way -- and it must
+    directly follow that page in the document. Spill is a property of printing: the
+    overflow of a page is the next page, always. A page of session notes at the end of a
+    scan is not next to anything, whatever words happen to be on it.
+    """
+    order = sorted(set(settled) | set(transcriptions))
+    joined: dict[int, tuple[int, float]] = {}
+    running = dict(settled)
+
+    for position, pdf_page in enumerate(order):
+        if pdf_page in running or position == 0:
+            continue
+        previous = running.get(order[position - 1])
+        if previous is None:
+            continue
+
+        signature = signatures.get(previous)
+        text = transcriptions.get(pdf_page)
+        if signature is None or text is None:
+            continue
+
+        recall, matched = score(text, signature)
+        if recall < CONTINUATION_THRESHOLD or matched < CONTINUATION_MIN_WEIGHT:
+            continue
+
+        joined[pdf_page] = (previous, recall)
+        running[pdf_page] = previous
+
+    return joined

@@ -33,12 +33,28 @@ class SectionResult:
     record: SectionRecord | None = None
 
 
-def _page_text(ocr_pages: dict[int, OcrPage], sheet_pages: tuple[int, ...]) -> str:
+def _page_text(ocr_pages: dict[int, list[OcrPage]], sheet_pages: tuple[int, ...]) -> str:
+    """One transcription for the job, labelled so the model knows what it is reading.
+
+    A sheet page can arrive as several pages of the upload: a character with more gear
+    than the printed lines hold spills onto a further page when exported, and a scan of
+    that printout has two pages where the form has one. The parts are labelled as
+    continuations rather than concatenated silently, because a model handed two slabs of a
+    gear list with no explanation reports the entries twice.
+    """
     parts = []
     for sheet_page in sheet_pages:
-        page = ocr_pages.get(sheet_page)
-        if page and page.text.strip():
-            parts.append(f"[sheet page {sheet_page}]\n{page.text}")
+        pages = [page for page in ocr_pages.get(sheet_page, []) if page.text.strip()]
+        for index, page in enumerate(pages, start=1):
+            label = (
+                f"[sheet page {sheet_page}]"
+                if len(pages) == 1
+                else (
+                    f"[sheet page {sheet_page}, part {index} of {len(pages)} -- "
+                    "a continuation of the same page, not a second one]"
+                )
+            )
+            parts.append(f"{label}\n{page.text}")
     return "\n\n".join(parts)
 
 
@@ -142,18 +158,21 @@ def _unmapped_from(entries: list, section: Section, pdf_page: int, sheet_page: i
 def run_section(
     section: Section,
     provider: ReasoningProvider,
-    ocr_pages: dict[int, OcrPage],
-    images: dict[int, PageImage],
+    ocr_pages: dict[int, list[OcrPage]],
+    images: dict[int, list[PageImage]],
 ) -> SectionResult:
     """Run one mapping job. Never raises: failure is returned as a record."""
     text = _page_text(ocr_pages, section.sheet_pages)
-    attached = (
-        [images[p] for p in section.sheet_pages if p in images] if provider.supports_vision else []
-    )
+    of_this_section = [image for p in section.sheet_pages for image in images.get(p, [])]
+    attached = of_this_section if provider.supports_vision else []
     primary = section.sheet_pages[0]
     # The PDF page number, not the sheet page: the rendered images the editor crops are
     # named by their position in the uploaded file, which is rarely the same thing.
-    pdf_page = next((images[p].pdf_page for p in section.sheet_pages if p in images), None)
+    pdf_page = next((image.pdf_page for image in of_this_section), None)
+    # True when at least one sheet page arrived as more than one page of the upload.
+    continued = any(
+        len(images.get(p, [])) > 1 or len(ocr_pages.get(p, [])) > 1 for p in section.sheet_pages
+    )
 
     if not text.strip() and not attached:
         return SectionResult(
@@ -168,7 +187,7 @@ def run_section(
 
     request = ReasoningRequest(
         system=section.system_prompt(),
-        user=section.user_prompt(text, has_images=bool(attached)),
+        user=section.user_prompt(text, has_images=bool(attached), continued=continued),
         images=attached,
         label=section.name,
         max_tokens=section.max_tokens,
@@ -260,8 +279,8 @@ def run_section(
 def map_sheet(
     document: dict,
     provider: ReasoningProvider,
-    ocr_pages: dict[int, OcrPage],
-    images: dict[int, PageImage],
+    ocr_pages: dict[int, list[OcrPage]],
+    images: dict[int, list[PageImage]],
     *,
     sections: tuple[Section, ...] = ALL_SECTIONS,
     max_workers: int = 4,

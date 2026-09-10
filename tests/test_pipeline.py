@@ -181,7 +181,8 @@ class StubReasoning:
 
 @pytest.fixture
 def ocr_pages():
-    return {n: OcrPage(pdf_page=n, sheet_page=n, text=f"page {n} text") for n in range(1, 6)}
+    """Keyed by sheet page, and a *list*: one sheet page can arrive as several."""
+    return {n: [OcrPage(pdf_page=n, sheet_page=n, text=f"page {n} text")] for n in range(1, 6)}
 
 
 @pytest.fixture
@@ -190,7 +191,7 @@ def images(tmp_path):
     for n in range(1, 6):
         path = tmp_path / f"p{n}.png"
         path.write_bytes(f"image {n}".encode())
-        out[n] = PageImage(pdf_page=n, path=path, sheet_page=n)
+        out[n] = [PageImage(pdf_page=n, path=path, sheet_page=n)]
     return out
 
 

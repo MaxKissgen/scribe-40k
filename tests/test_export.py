@@ -224,3 +224,95 @@ class TestRebuildingAssetsPreservesLayouts:
         monkeypatch.setattr(build_assets, "PAGE_FINGERPRINTS", broken)
 
         assert build_assets._preserve_recorded_layouts() == []
+
+
+class TestAnOverflowingSheetRoundTrips:
+    """A sheet with more content than the printed lines hold does not export as five pages
+    and import as five pages -- it exports as more pages than the form has, and every one
+    of them has to find its way back to the page it came from.
+
+    Before continuations existed this was the worst case in the project: a filled export
+    came back with one page of five recognised, because each spilled half looked like its
+    sheet page without looking like it *more* than the other half did.
+    """
+
+    @pytest.fixture(scope="class")
+    def exported(self, tmp_path_factory):
+        from scribe40k import api
+        from scribe40k.export.pdf import export_character
+
+        root = tmp_path_factory.mktemp("overflow")
+        store = CharacterStore(root / "characters")
+
+        document = blank_character().to_json_dict()
+        document["bio"]["characterName"] = "Overflow"
+        document["bio"]["description"] = "\n".join(
+            f"A long line of description number {i}" for i in range(20)
+        )
+        document["gear"] = [
+            {"name": f"gear item number {i}", "quantity": i % 5 or None, "notes": None}
+            for i in range(45)
+        ]
+        document["talentsAndTraits"]["advancesTalentsAndTraits"] = [
+            {"name": f"Talent {i}", "specialisation": None, "notes": None} for i in range(35)
+        ]
+        store.save("overflow", document)
+
+        original = api.store
+        api.store = store
+        try:
+            destination = root / "overflow.pdf"
+            export_character("overflow", destination)
+        finally:
+            api.store = original
+
+        return destination, root
+
+    def test_it_really_does_spill(self, exported) -> None:
+        """If this stops being true the test below is proving nothing."""
+        destination, _ = exported
+        with pymupdf.open(destination) as doc:
+            assert doc.page_count > 3, "the fixture is meant to outgrow its printed lines"
+
+    @pytest.mark.skipif(not PAGE_FINGERPRINTS.exists(), reason="assets not built")
+    def test_every_page_finds_the_sheet_page_it_came_from(self, exported) -> None:
+        from scribe40k.pipeline.run import prepare
+
+        destination, root = exported
+
+        class RefuseOcr:
+            name = model = "refuse"
+
+            def transcribe(self, pages):
+                raise AssertionError(f"an export carries its own text; OCR was called for {pages}")
+
+        prepared = prepare(destination, RefuseOcr(), image_dir=root / "pages")
+
+        assert sorted(set(prepared.proposal.values())) == [1, 2, 3]
+        assert all(isinstance(target, int) for target in prepared.proposal.values()), (
+            f"something was filed as notes: {prepared.proposal}"
+        )
+
+    @pytest.mark.skipif(not PAGE_FINGERPRINTS.exists(), reason="assets not built")
+    def test_the_spilled_half_joins_the_half_it_spilled_from(self, exported) -> None:
+        from scribe40k.pipeline.run import prepare
+
+        destination, root = exported
+
+        class NoOcr:
+            name = model = "none"
+
+            def transcribe(self, pages):
+                return []
+
+        prepared = prepare(destination, NoOcr(), image_dir=root / "pages2")
+        by_sheet_page: dict[int, list[int]] = {}
+        for pdf_page, target in sorted(prepared.proposal.items()):
+            if isinstance(target, int):
+                by_sheet_page.setdefault(target, []).append(pdf_page)
+
+        parted = {sheet: pages for sheet, pages in by_sheet_page.items() if len(pages) > 1}
+        assert parted, "the fixture spills, so some sheet page must be covered twice"
+        for pages in parted.values():
+            assert pages == sorted(pages), "parts stay in the order they were printed"
+            assert pages[-1] - pages[0] == len(pages) - 1, "a spill is the very next page"

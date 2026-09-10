@@ -30,7 +30,7 @@ from .llm.config import load_config
 from .llm.registry import OFFLINE_PROVIDERS, build_ocr_provider, build_reasoning_provider
 from .paths import ARMOUR_SILHOUETTE, FRONTEND_DIST
 from .pipeline.report import ExtractionReport
-from .pipeline.run import PageTarget, PreparedPages, duplicate_sheet_pages
+from .pipeline.run import PageTarget, PreparedPages
 from .pipeline.run import finish as run_finish
 from .pipeline.run import prepare as run_prepare
 from .pipeline.validate import dedupe_flags, validate_document
@@ -540,13 +540,6 @@ def confirm_import(character_id: str, body: ConfirmImport) -> dict:
         unknown = set(assignment) - {p.pdf_page for p in prepared.ingested.pages}
         if unknown:
             raise HTTPException(400, f"the upload has no page {sorted(unknown)[0]}")
-        duplicates = duplicate_sheet_pages(assignment)
-        if duplicates:
-            raise HTTPException(
-                400,
-                f"sheet page {duplicates[0]} is assigned to more than one page of the "
-                "upload; a sheet has one of each",
-            )
 
     outcome = run_finish(prepared, reasoning, assignment=assignment)
     store.save(character_id, outcome.character)

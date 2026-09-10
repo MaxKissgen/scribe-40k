@@ -158,53 +158,75 @@ class PreparedPages:
         )
 
 
-def _page_images(result: IngestResult) -> dict[int, PageImage]:
-    """Rendered images of the matched sheet pages, keyed by sheet page."""
-    images: dict[int, PageImage] = {}
+def _image_of(page: IngestedPage) -> PageImage | None:
+    if page.image_path is None:
+        return None
+    width, height = page.image_size or (0, 0)
+    return PageImage(
+        pdf_page=page.pdf_page,
+        path=page.image_path,
+        sheet_page=page.sheet_page,
+        width=width,
+        height=height,
+    )
+
+
+def _page_images(result: IngestResult) -> dict[int, list[PageImage]]:
+    """Rendered images of the matched sheet pages, grouped by sheet page.
+
+    A list rather than one image per page, because a sheet page can arrive as more than
+    one page of the upload.
+    """
+    images: dict[int, list[PageImage]] = {}
     for page in result.sheet_pages:
-        if page.image_path is None or page.sheet_page is None:
+        image = _image_of(page)
+        if image is None or page.sheet_page is None:
             continue
-        width, height = page.image_size or (0, 0)
-        images[page.sheet_page] = PageImage(
-            pdf_page=page.pdf_page,
-            path=page.image_path,
-            sheet_page=page.sheet_page,
-            width=width,
-            height=height,
-        )
+        images.setdefault(page.sheet_page, []).append(image)
     return images
 
 
 def _transcribe(
     result: IngestResult,
-    images: dict[int, PageImage],
     ocr_provider: OcrProvider,
 ) -> dict[int, OcrPage]:
-    """Transcribe the sheet pages, skipping OCR where the PDF already has the text."""
-    needs_ocr = [
-        img
-        for sheet_page, img in images.items()
-        if (page := result.page_for(sheet_page)) and page.text_source is TextSource.OCR
-    ]
+    """Transcribe the sheet pages, keyed by PDF page.
+
+    Keyed by PDF page rather than sheet page because that is the only key that is unique:
+    two uploaded pages can be the same sheet page. Grouping happens later, once the user
+    has confirmed which is which.
+    """
+    pages = [image for page in result.sheet_pages if (image := _image_of(page))]
+    return _transcribe_images(result, pages, ocr_provider)
+
+
+def _transcribe_images(
+    result: IngestResult,
+    pages: list[PageImage],
+    ocr_provider: OcrProvider,
+) -> dict[int, OcrPage]:
+    """Read the given pages, skipping OCR where the PDF already carries the text."""
+    if not pages:
+        return {}
+
     from_layer = [
-        img
-        for sheet_page, img in images.items()
-        if (page := result.page_for(sheet_page)) and page.text_source is TextSource.TEXT_LAYER
+        page
+        for page in pages
+        if (ingested := result.page_for_pdf(page.pdf_page))
+        and ingested.text_source is TextSource.TEXT_LAYER
     ]
+    from_layer_pages = {page.pdf_page for page in from_layer}
+    needs_ocr = [page for page in pages if page.pdf_page not in from_layer_pages]
 
     transcribed: dict[int, OcrPage] = {}
-
     if from_layer:
         passthrough = PassthroughOcr()
         passthrough.load_from_ingest(result.pages)
         for page in passthrough.transcribe(from_layer):
-            if page.sheet_page is not None:
-                transcribed[page.sheet_page] = page
-
+            transcribed[page.pdf_page] = page
     if needs_ocr:
         for page in ocr_provider.transcribe(needs_ocr):
-            if page.sheet_page is not None:
-                transcribed[page.sheet_page] = page
+            transcribed[page.pdf_page] = page
 
     return transcribed
 
@@ -226,28 +248,7 @@ def _transcribe_extra_pages(
         for p in result.unrecognised_pages
         if p.image_path is not None
     ]
-    if not pages:
-        return {}
-
-    from_layer = [
-        page
-        for page in pages
-        if (ingested := result.page_for_pdf(page.pdf_page))
-        and ingested.text_source is TextSource.TEXT_LAYER
-    ]
-    needs_ocr = [page for page in pages if page not in from_layer]
-
-    transcribed: dict[int, OcrPage] = {}
-    if from_layer:
-        passthrough = PassthroughOcr()
-        passthrough.load_from_ingest(result.pages)
-        for page in passthrough.transcribe(from_layer):
-            transcribed[page.pdf_page] = page
-    if needs_ocr:
-        for page in ocr_provider.transcribe(needs_ocr):
-            transcribed[page.pdf_page] = page
-
-    return transcribed
+    return _transcribe_images(result, pages, ocr_provider)
 
 
 def _recover_pages_from_text(
@@ -278,8 +279,8 @@ def _recover_pages_from_text(
     if not candidates:
         return {}
 
-    claimed = {p.sheet_page for p in result.sheet_pages if p.sheet_page}
-    identified = identify_pages(candidates, signatures, already_claimed=claimed)
+    placed = {p.pdf_page: p.sheet_page for p in result.sheet_pages if p.sheet_page}
+    identified = identify_pages(candidates, signatures, already_placed=placed)
 
     for pdf_page, (sheet_page, recall) in identified.items():
         page = result.page_for_pdf(pdf_page)
@@ -316,10 +317,10 @@ def _note_pages(result: IngestResult, extra: dict[int, OcrPage]) -> list[dict]:
     return notes
 
 
-def _page_records(result: IngestResult, ocr_pages: dict[int, OcrPage]) -> list[PageRecord]:
+def _page_records(result: IngestResult, transcriptions: dict[int, OcrPage]) -> list[PageRecord]:
     records = []
     for page in result.pages:
-        ocr = ocr_pages.get(page.sheet_page) if page.sheet_page else None
+        ocr = transcriptions.get(page.pdf_page)
         records.append(
             PageRecord(
                 pdfPage=page.pdf_page,
@@ -338,7 +339,7 @@ def _page_records(result: IngestResult, ocr_pages: dict[int, OcrPage]) -> list[P
     return records
 
 
-def _structural_flags(result: IngestResult, ocr_pages: dict[int, OcrPage]) -> list[Flag]:
+def _structural_flags(result: IngestResult, transcriptions: dict[int, OcrPage]) -> list[Flag]:
     """Problems with the document itself, rather than with any one field."""
     flags: list[Flag] = []
 
@@ -377,14 +378,20 @@ def _structural_flags(result: IngestResult, ocr_pages: dict[int, OcrPage]) -> li
             )
         )
 
-    for sheet_page, page in sorted(ocr_pages.items()):
-        if page.error:
+    for pdf_page, transcription in sorted(transcriptions.items()):
+        if transcription.error:
+            where = result.page_for_pdf(pdf_page)
+            what = (
+                f"Sheet page {where.sheet_page}"
+                if where and where.sheet_page
+                else f"PDF page {pdf_page}"
+            )
             flags.append(
                 Flag(
                     pointer="",
                     severity="error",
                     rule="ocr.page_failed",
-                    message=f"Sheet page {sheet_page} could not be transcribed: {page.error}",
+                    message=f"{what} could not be transcribed: {transcription.error}",
                 )
             )
 
@@ -455,13 +462,11 @@ def prepare(
         f"{blanks} blank, {len(ingested.unrecognised_pages)} unrecognised"
     )
 
-    images = _page_images(ingested)
-
-    say(f"Transcribing {len(images)} page(s)")
-    by_sheet_page = _transcribe(ingested, images, ocr_provider)
-    cached = sum(1 for p in by_sheet_page.values() if p.cached)
+    say(f"Transcribing {len(ingested.sheet_pages)} page(s)")
+    transcriptions = _transcribe(ingested, ocr_provider)
+    cached = sum(1 for p in transcriptions.values() if p.cached)
     if cached:
-        say(f"  {cached} of {len(by_sheet_page)} came from the cache")
+        say(f"  {cached} of {len(transcriptions)} came from the cache")
 
     if ingested.unrecognised_pages:
         say(
@@ -476,7 +481,6 @@ def prepare(
     for pdf_page, (sheet_page, recall) in sorted(recovered.items()):
         say(f"  PDF page {pdf_page} reads as sheet page {sheet_page} ({recall:.0%} of its words)")
 
-    transcriptions = {page.pdf_page: page for page in by_sheet_page.values()}
     transcriptions.update(extra_pages)
 
     return PreparedPages(
@@ -532,17 +536,19 @@ def _target_of(page: IngestedPage) -> PageTarget:
     return "skip" if page.kind is PageKind.BLANK else "notes"
 
 
-def duplicate_sheet_pages(assignment: dict[int, PageTarget]) -> list[int]:
-    """Sheet pages claimed by more than one page of the upload.
+def sheet_pages_in_parts(assignment: dict[int, PageTarget]) -> dict[int, int]:
+    """Sheet pages covered by more than one page of the upload, and by how many.
 
-    A sheet has one of each page. Two uploads both claiming to be page 2 is not something
-    to resolve quietly: whichever is mapped second would silently overwrite the first.
+    This used to be an error -- a sheet has one of each page, so two uploads claiming to
+    be page 2 looked like a mistake. It is not: a character with more gear than the printed
+    lines hold spills onto a further page when exported, and a scan of that printout has
+    two pages where the form has one. They are read together as one page.
     """
     counts: dict[int, int] = {}
     for target in assignment.values():
         if isinstance(target, int):
             counts[target] = counts.get(target, 0) + 1
-    return sorted(page for page, count in counts.items() if count > 1)
+    return {page: count for page, count in sorted(counts.items()) if count > 1}
 
 
 def finish(
@@ -567,12 +573,12 @@ def finish(
     apply_assignment(ingested, assignment if assignment is not None else prepared.proposal)
 
     images = _page_images(ingested)
-    ocr_pages: dict[int, OcrPage] = {}
+    ocr_pages: dict[int, list[OcrPage]] = {}
     for page in ingested.sheet_pages:
         transcription = prepared.transcriptions.get(page.pdf_page)
         if transcription and page.sheet_page:
             transcription.sheet_page = page.sheet_page
-            ocr_pages[page.sheet_page] = transcription
+            ocr_pages.setdefault(page.sheet_page, []).append(transcription)
 
     extra_pages = {
         page.pdf_page: transcription
@@ -597,7 +603,7 @@ def finish(
 
     flags = dedupe_flags(
         [
-            *_structural_flags(ingested, ocr_pages),
+            *_structural_flags(ingested, prepared.transcriptions),
             *_note_page_flags(ingested, notes),
             *model_flags,
             *rule_flags,
@@ -618,7 +624,7 @@ def finish(
                 supportsVision=reasoning_provider.supports_vision,
             ),
         },
-        pages=_page_records(ingested, ocr_pages),
+        pages=_page_records(ingested, prepared.transcriptions),
         flags=flags,
         unmapped=unmapped,
         sections=records,

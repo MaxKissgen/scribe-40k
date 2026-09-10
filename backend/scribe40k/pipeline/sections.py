@@ -97,7 +97,7 @@ class Section:
     def system_prompt(self) -> str:
         return f"{SHEET_CONTEXT}\n{ENVELOPE_INSTRUCTIONS}"
 
-    def user_prompt(self, ocr_text: str, *, has_images: bool) -> str:
+    def user_prompt(self, ocr_text: str, *, has_images: bool, continued: bool = False) -> str:
         pages = ", ".join(str(p) for p in self.sheet_pages)
         vision_note = (
             "The page image is attached. Trust the image over the transcription wherever "
@@ -108,9 +108,24 @@ class Section:
             "alone. Tick boxes are unreliable in text form: mark a field uncertain rather "
             "than guessing which boxes were filled."
         )
+        # A sheet page can arrive as several pages. Left unexplained, a model handed the
+        # gear list in two slabs reports the same entries twice, or treats the second slab
+        # as a different character's.
+        continuation_note = (
+            "\nONE OF THESE SHEET PAGES ARRIVED AS SEVERAL PAGES. They are marked "
+            '"part N of M" below, and there is an image for each. A part is the *same* '
+            "page continued -- a list too long for the printed lines running on -- not a "
+            "second sheet and not a second character. Read them as one page: an entry that "
+            "starts on one part and finishes on the next is one entry, a heading repeated "
+            "at the top of a part is the same heading, and nothing should be reported "
+            "twice. Where the parts disagree, later wins: it is the continuation.\n"
+            if continued
+            else ""
+        )
         return (
             f"Extract the {self.title} from sheet page(s) {pages}.\n\n"
-            f"{vision_note}\n\n"
+            f"{vision_note}\n"
+            f"{continuation_note}\n"
             f"{self.instructions}\n\n"
             f"--- OCR TRANSCRIPTION (sheet page {pages}) ---\n"
             f"{ocr_text or '(the transcription is empty; work from the image)'}\n"

@@ -135,8 +135,8 @@ class TestMisplacedAdditionalSkills:
         result = run_section(
             SECTION_BY_NAME["skills"],
             Stub(),
-            {1: OcrPage(pdf_page=1, sheet_page=1, text=OCR_SKILLS)},
-            {1: PageImage(pdf_page=1, path=image, sheet_page=1)},
+            {1: [OcrPage(pdf_page=1, sheet_page=1, text=OCR_SKILLS)]},
+            {1: [PageImage(pdf_page=1, path=image, sheet_page=1)]},
         )
 
         assert result.record.status == "ok"

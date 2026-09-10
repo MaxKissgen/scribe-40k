@@ -16,10 +16,10 @@ from scribe40k.pipeline.ingest import IngestedPage, IngestResult, PageKind, Text
 from scribe40k.pipeline.run import (
     PreparedPages,
     apply_assignment,
-    duplicate_sheet_pages,
     finish,
     prepare,
     propose_assignment,
+    sheet_pages_in_parts,
 )
 
 
@@ -92,12 +92,12 @@ class TestApplyAssignment:
         assert ingested.page_for_pdf(1).sheet_page == 1
 
 
-class TestDuplicates:
-    def test_two_pages_claiming_one_sheet_page_are_reported(self) -> None:
-        assert duplicate_sheet_pages({1: 2, 2: 2, 3: "notes"}) == [2]
+class TestPagesInParts:
+    def test_a_sheet_page_covered_twice_is_reported(self) -> None:
+        assert sheet_pages_in_parts({1: 2, 2: 2, 3: "notes"}) == {2: 2}
 
-    def test_notes_and_skips_may_repeat(self) -> None:
-        assert duplicate_sheet_pages({1: "notes", 2: "notes", 3: "skip", 4: "skip"}) == []
+    def test_notes_and_skips_are_not_counted(self) -> None:
+        assert sheet_pages_in_parts({1: "notes", 2: "notes", 3: "skip", 4: "skip"}) == {}
 
 
 class TestPendingRoundTrip:
@@ -327,17 +327,20 @@ class TestConfirming:
 
         assert payload["character"]["notePages"] == []
 
-    def test_one_sheet_page_cannot_be_claimed_twice(self, stubbed, two_page_pdf) -> None:
-        client, _api, _ = stubbed
+    def test_two_pages_may_cover_one_sheet_page(self, stubbed, two_page_pdf) -> None:
+        """A page whose list outgrew its printed lines is exported as two, and scanned
+        back as two. Both are read together as the one page they are."""
+        client, _api, reasoning = stubbed
         character_id = _import(client, two_page_pdf).json()["id"]
 
-        response = client.post(
+        payload = client.post(
             f"/api/imports/{character_id}/confirm",
             json={"assignment": {"1": 2, "2": 2}},
-        )
+        ).json()
 
-        assert response.status_code == 400
-        assert "more than one" in response.json()["detail"]
+        pages = {p["pdfPage"]: p["sheetPage"] for p in payload["report"]["pages"]}
+        assert pages == {1: 2, 2: 2}
+        assert reasoning.labels.count("equipment") == 1, "one call, not one per part"
 
     def test_a_page_the_upload_does_not_have_is_rejected(self, stubbed, two_page_pdf) -> None:
         client, _api, _ = stubbed
