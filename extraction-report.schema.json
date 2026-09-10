@@ -83,98 +83,62 @@
       "type": "array",
       "description": "Every page of the uploaded PDF and what became of it. Pages are listed even when discarded, so a missing section can be traced back to a page that was blank, unreadable or never matched.",
       "items": {
+        "$ref": "#/$defs/pageRecord"
+      }
+    },
+    "sections": {
+      "type": "array",
+      "description": "One entry per mapping job. Jobs run independently, so a failure here explains why one part of the sheet is empty while the rest is fine.",
+      "items": {
+        "$ref": "#/$defs/sectionRecord"
+      }
+    },
+
+    "updates": {
+      "type": "array",
+      "description": "Re-readings of this character from a marked-up printout, oldest first. An update never writes to the character: it produces suggestions, which appear in 'flags' with rules beginning 'update.'. This records where they came from, since a suggestion outlives the request that made it and is unanswerable without knowing which printout it read.",
+      "items": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "pdfPage",
-          "kind",
-          "sheetPage",
-          "textSource"
+          "id"
         ],
         "properties": {
-          "pdfPage": {
+          "id": {
+            "type": "string",
+            "description": "Referred to by a flag's evidence.source, and by the URL its page images are served from."
+          },
+          "appliedAt": {
+            "type": "string",
+            "description": "When it was read, in ISO 8601."
+          },
+          "sourceName": {
+            "type": "string",
+            "description": "Name of the uploaded file."
+          },
+          "pages": {
+            "type": "array",
+            "description": "What became of each page of that upload.",
+            "items": {
+              "$ref": "#/$defs/pageRecord"
+            }
+          },
+          "sections": {
+            "type": "array",
+            "description": "Which mapping jobs ran over it. A section that did not run contributes no suggestions, so a page left out of the upload cannot empty the fields printed on it.",
+            "items": {
+              "$ref": "#/$defs/sectionRecord"
+            }
+          },
+          "suggested": {
             "type": "integer",
-            "minimum": 1,
-            "description": "1-based index in the uploaded PDF."
-          },
-          "kind": {
-            "enum": [
-              "sheet",
-              "blank",
-              "unrecognised"
-            ],
-            "description": "'sheet' matched a template page; 'blank' had no significant ink; 'unrecognised' had content but matched no template page (session notes, a map, a second character)."
-          },
-          "sheetPage": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "minimum": 1,
-            "maximum": 5,
-            "description": "Which of the five printed sheet pages this is. Null unless kind is 'sheet'. Note that this need not equal pdfPage: duplex scans interleave blanks, and pages are often out of order."
-          },
-          "textSource": {
-            "enum": [
-              "text_layer",
-              "ocr"
-            ],
-            "description": "'text_layer' means the PDF carried its own text and no OCR call was made."
-          },
-          "matchScore": {
-            "type": [
-              "number",
-              "null"
-            ],
-            "description": "Correlation with the best-matching template page, 0 to 1."
-          },
-          "matchedBy": {
-            "enum": [
-              "image",
-              "text",
-              "print",
-              "user"
-            ],
-            "description": "Which signal placed this page. 'image' is the page fingerprint against the blank template. 'print' is the fingerprint against what this character looked like when it was last exported, which is the better reference for a scan of a marked-up printout. 'text' means neither could place it -- a photograph taken at an angle defeats both -- and the page was identified from the printed words its transcription contains instead. 'user' means a person overrode them all on the assignment screen."
-          },
-          "textScore": {
-            "type": [
-              "number",
-              "null"
-            ],
-            "description": "Weighted share of that sheet page's printed vocabulary found in this page's transcription, 0 to 1. Set only when matchedBy is 'text'."
-          },
-          "ink": {
-            "type": [
-              "number",
-              "null"
-            ],
-            "description": "Fraction of dark pixels, used for blank detection."
-          },
-          "imagePath": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Rendered page image, relative to the character directory. Null for blank pages, which are not rendered."
-          },
-          "note": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Why a page was discarded or could not be placed. Shown to the user."
-          },
-          "ocrError": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Populated when transcription failed for this page alone."
+            "minimum": 0,
+            "description": "How many suggestions it raised, including ones since resolved."
           }
         }
       }
     },
+
     "flags": {
       "type": "array",
       "description": "Everything a human should look at. Each entry addresses one field of the character document by JSON Pointer, so the editor can highlight it in place.",
@@ -182,6 +146,7 @@
         "$ref": "#/$defs/flag"
       }
     },
+
     "unmapped": {
       "type": "array",
       "description": "Content found on the sheet that no field could hold: marginal annotations, arrows, text written outside its box, and pages that are not part of the sheet at all. Surfaced in the editor as an assignment tray rather than discarded, so nothing read from the paper is silently lost.",
@@ -255,64 +220,9 @@
           }
         }
       }
-    },
-    "sections": {
-      "type": "array",
-      "description": "One entry per mapping job. Jobs run independently, so a failure here explains why one part of the sheet is empty while the rest is fine.",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "name",
-          "status"
-        ],
-        "properties": {
-          "name": {
-            "type": "string",
-            "description": "Job identifier, e.g. 'skills'."
-          },
-          "status": {
-            "enum": [
-              "ok",
-              "failed",
-              "skipped"
-            ]
-          },
-          "sheetPages": {
-            "type": "array",
-            "items": {
-              "type": "integer"
-            }
-          },
-          "error": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "promptTokens": {
-            "type": [
-              "integer",
-              "null"
-            ]
-          },
-          "completionTokens": {
-            "type": [
-              "integer",
-              "null"
-            ]
-          },
-          "cached": {
-            "type": [
-              "boolean",
-              "null"
-            ],
-            "description": "True when the reply came from the local cache rather than a fresh call."
-          }
-        }
-      }
     }
   },
+
   "$defs": {
     "modelRef": {
       "type": "object",
@@ -440,8 +350,159 @@
             },
             "bbox": {
               "$ref": "#/$defs/bbox"
+            },
+            "source": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Which document 'pdfPage' refers to: null for the original import, otherwise the id of an entry in 'updates'. A flag raised by re-reading a marked-up printout crops that printout, not the original scan."
             }
           }
+        }
+      }
+    },
+    "pageRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pdfPage",
+        "kind",
+        "sheetPage",
+        "textSource"
+      ],
+      "properties": {
+        "pdfPage": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "1-based index in the uploaded PDF."
+        },
+        "kind": {
+          "enum": [
+            "sheet",
+            "blank",
+            "unrecognised"
+          ],
+          "description": "'sheet' matched a template page; 'blank' had no significant ink; 'unrecognised' had content but matched no template page (session notes, a map, a second character)."
+        },
+        "sheetPage": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 5,
+          "description": "Which of the five printed sheet pages this is. Null unless kind is 'sheet'. Note that this need not equal pdfPage: duplex scans interleave blanks, and pages are often out of order."
+        },
+        "textSource": {
+          "enum": [
+            "text_layer",
+            "ocr"
+          ],
+          "description": "'text_layer' means the PDF carried its own text and no OCR call was made."
+        },
+        "matchScore": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "Correlation with the best-matching template page, 0 to 1."
+        },
+        "matchedBy": {
+          "enum": [
+            "image",
+            "text",
+            "print",
+            "user"
+          ],
+          "description": "Which signal placed this page. 'image' is the page fingerprint against the blank template. 'print' is the fingerprint against what this character looked like when it was last exported, which is the better reference for a scan of a marked-up printout. 'text' means neither could place it -- a photograph taken at an angle defeats both -- and the page was identified from the printed words its transcription contains instead. 'user' means a person overrode them all on the assignment screen."
+        },
+        "textScore": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "Weighted share of that sheet page's printed vocabulary found in this page's transcription, 0 to 1. Set only when matchedBy is 'text'."
+        },
+        "ink": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "Fraction of dark pixels, used for blank detection."
+        },
+        "imagePath": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Rendered page image, relative to the character directory. Null for blank pages, which are not rendered."
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Why a page was discarded or could not be placed. Shown to the user."
+        },
+        "ocrError": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Populated when transcription failed for this page alone."
+        }
+      }
+    },
+    "sectionRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "status"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Job identifier, e.g. 'skills'."
+        },
+        "status": {
+          "enum": [
+            "ok",
+            "failed",
+            "skipped"
+          ]
+        },
+        "sheetPages": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          }
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "promptTokens": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "completionTokens": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "cached": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "True when the reply came from the local cache rather than a fresh call."
         }
       }
     }

@@ -12,6 +12,9 @@ data outlives this program.
         pages/           rendered page images
         prints/          what each exported PDF looked like, for reading a marked-up
                          printout of it back in
+        updates/<uid>/   one re-reading of the character from such a printout: its own
+                         source.pdf, pages/ and pending.json, kept because the suggestions
+                         it raised need its crops long after it was read
 
 A directory with a ``pending.json`` and no ``character.json`` is an import waiting for
 someone to confirm which page is which. It does not appear in the character list, because
@@ -36,10 +39,23 @@ CHARACTER_FILE = "character.json"
 REPORT_FILE = "report.json"
 PENDING_FILE = "pending.json"
 PRINTS_DIR = "prints"
+UPDATES_DIR = "updates"
+
+#: Ids that may appear in a path. Anything else is a caller trying to escape the store.
+_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
+
 SOURCE_FILE = "source.pdf"
 PAGES_DIR = "pages"
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
+
+
+def safe_id(value: str) -> str:
+    """Reject an id that could reach outside the data directory."""
+    if not _ID_RE.match(value or ""):
+        raise ValueError(f"not a valid id: {value!r}")
+    return value
 
 
 def slugify(text: str) -> str:
@@ -83,6 +99,24 @@ class CharacterStore:
 
     def source_path(self, character_id: str) -> Path:
         return self.directory(character_id) / SOURCE_FILE
+
+    def update_key(self, character_id: str, update_id: str) -> str:
+        """An update is stored as a nested pseudo-character.
+
+        It has a source PDF, rendered pages and a pending file, and wants exactly the same
+        handling as an import for all three -- so it gets the same methods, one directory
+        down, rather than a parallel set of them.
+        """
+        return f"{safe_id(character_id)}/{UPDATES_DIR}/{safe_id(update_id)}"
+
+    def list_updates(self, character_id: str) -> list[str]:
+        """Update ids with a pending file: read, but not yet turned into suggestions."""
+        directory = self.directory(character_id) / UPDATES_DIR
+        if not directory.is_dir():
+            return []
+        return sorted(
+            child.name for child in directory.iterdir() if (child / PENDING_FILE).is_file()
+        )
 
     # -- identity ---------------------------------------------------------------
 

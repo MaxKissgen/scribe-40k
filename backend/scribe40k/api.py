@@ -13,6 +13,7 @@ in one place rather than two.
 from __future__ import annotations
 
 import io
+import uuid
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -29,12 +30,14 @@ from .llm.base import ProviderError
 from .llm.config import load_config
 from .llm.registry import OFFLINE_PROVIDERS, build_ocr_provider, build_reasoning_provider
 from .paths import ARMOUR_SILHOUETTE, FRONTEND_DIST
-from .pipeline.report import ExtractionReport
+from .pipeline.diff import covered_keys, suggest_updates
+from .pipeline.report import Evidence, ExtractionReport, UpdateRecord
 from .pipeline.run import PageTarget, PreparedPages
 from .pipeline.run import finish as run_finish
 from .pipeline.run import prepare as run_prepare
+from .pipeline.sections import ALL_SECTIONS
 from .pipeline.validate import dedupe_flags, validate_document
-from .store import CharacterStore
+from .store import CharacterStore, safe_id
 
 app = FastAPI(title="scribe-40k", version="0.1.0")
 
@@ -198,6 +201,46 @@ def _preview(transcription) -> str | None:
         return None
     collapsed = " ".join(transcription.text.split())
     return collapsed[:400] or None
+
+
+def _update_key(character_id: str, update_id: str) -> str:
+    try:
+        return store.update_key(character_id, update_id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+def _is_suggestion_from(flag, update_id: str) -> bool:
+    return flag.rule.startswith("update.") and bool(
+        flag.evidence and flag.evidence.source == update_id
+    )
+
+
+def _attach_page(flag, report: ExtractionReport, update_id: str) -> None:
+    """Point a suggestion at the page of the printout it came from.
+
+    Without this the popover has no crop, and a suggestion about handwriting with no
+    picture of the handwriting is a question the user cannot answer.
+    """
+    sheet_page = _sheet_page_for(flag.pointer)
+    match = next(
+        (page for page in report.pages if page.sheetPage == sheet_page and page.kind == "sheet"),
+        None,
+    )
+    flag.evidence = Evidence(
+        source=update_id,
+        sheetPage=match.sheetPage if match else None,
+        pdfPage=match.pdfPage if match else None,
+    )
+
+
+def _sheet_page_for(pointer: str) -> int | None:
+    """Which page of the form a pointer's field is printed on."""
+    root = pointer.lstrip("/").split("/")[0]
+    for section in ALL_SECTIONS:
+        if root in section.owns:
+            return section.sheet_pages[0]
+    return None
 
 
 def _payload(character_id: str, document: dict) -> dict:
@@ -412,6 +455,157 @@ def add_note_page(character_id: str, body: NotePageRequest) -> dict:
 
 
 # --------------------------------------------------------------------------------------
+# Updates: re-reading a character from a printout somebody has written on
+# --------------------------------------------------------------------------------------
+
+
+@app.post("/api/characters/{character_id}/updates", status_code=201)
+async def start_update(
+    character_id: str,
+    file: Annotated[UploadFile, File()],
+) -> dict:
+    """Upload a marked-up printout of this character and read it.
+
+    Stops in the same place an import does, at the page assignment. Confirming it produces
+    *suggestions*, not a new sheet -- see :func:`confirm_update`.
+    """
+    _require(character_id)
+    config = load_config()
+    try:
+        ocr = build_ocr_provider(config.ocr, cache=config.cache)
+        build_reasoning_provider(config.reasoning, cache=config.cache)
+    except ProviderError as exc:
+        raise HTTPException(503, str(exc)) from exc
+
+    update_id = uuid.uuid4().hex[:8]
+    key = _update_key(character_id, update_id)
+    store.directory(key).mkdir(parents=True, exist_ok=True)
+
+    source = store.source_path(key)
+    source.write_bytes(await file.read())
+
+    prepared = run_prepare(
+        source,
+        ocr,
+        image_dir=store.pages_dir(key),
+        source_name=file.filename or None,
+        # The strongest reference there is for a scan of a printout: the printout.
+        printed_as=store.load_print_layouts(character_id),
+    )
+    store.save_pending(key, prepared)
+
+    return _proposal(key, prepared) | {
+        "characterId": character_id,
+        "updateId": update_id,
+        "kind": "update",
+    }
+
+
+@app.get("/api/characters/{character_id}/updates/{update_id}")
+def get_update(character_id: str, update_id: str) -> dict:
+    prepared = store.load_pending(_update_key(character_id, update_id))
+    if prepared is None:
+        raise HTTPException(404, f"no update '{update_id}' waiting for confirmation")
+    return _proposal(_update_key(character_id, update_id), prepared) | {
+        "characterId": character_id,
+        "updateId": update_id,
+        "kind": "update",
+    }
+
+
+@app.post("/api/characters/{character_id}/updates/{update_id}/confirm")
+def confirm_update(character_id: str, update_id: str, body: ConfirmImport) -> dict:
+    """Read the printout as assigned and describe how it differs from the character.
+
+    The character document is not written to. Everything that differs becomes a flag the
+    user can accept one at a time, because an update always has something to lose: a
+    plausible misreading saved over a value somebody typed last week destroys work with no
+    trace, and there is no way to tell afterwards.
+    """
+    document = _require(character_id)
+    key = _update_key(character_id, update_id)
+    prepared = store.load_pending(key)
+    if prepared is None:
+        raise HTTPException(404, f"no update '{update_id}' waiting for confirmation")
+
+    config = load_config()
+    try:
+        reasoning = build_reasoning_provider(config.reasoning, cache=config.cache)
+    except ProviderError as exc:
+        raise HTTPException(503, str(exc)) from exc
+
+    assignment = _assignment_from(body.assignment) if body.assignment is not None else None
+    if assignment is not None:
+        unknown = set(assignment) - {p.pdf_page for p in prepared.ingested.pages}
+        if unknown:
+            raise HTTPException(400, f"the upload has no page {sorted(unknown)[0]}")
+
+    outcome = run_finish(prepared, reasoning, assignment=assignment)
+
+    covers = covered_keys(outcome.report.sections, ALL_SECTIONS)
+    suggestions = suggest_updates(
+        document,
+        outcome.character,
+        covers=covers,
+        evidence=Evidence(source=update_id),
+    )
+    for flag in suggestions:
+        _attach_page(flag, outcome.report, update_id)
+
+    report = _report_or_empty(character_id) or ExtractionReport()
+    report.updates.append(
+        UpdateRecord(
+            id=update_id,
+            sourceName=prepared.source_name,
+            pages=outcome.report.pages,
+            sections=outcome.report.sections,
+            suggested=len(suggestions),
+        )
+    )
+    # Suggestions from an earlier reading of the same printout would double up; anything
+    # still open from a *different* one is left alone, since it is about different paper.
+    kept = [flag for flag in report.flags if not _is_suggestion_from(flag, update_id)]
+    report.flags = dedupe_flags([*kept, *suggestions])
+    store.save_report(character_id, report)
+    store.clear_pending(key)
+
+    return _payload(character_id, document) | {
+        "updateId": update_id,
+        "suggested": len(suggestions),
+        "sectionsRead": sorted(covers),
+    }
+
+
+@app.delete("/api/characters/{character_id}/updates/{update_id}", status_code=204)
+def cancel_update(character_id: str, update_id: str) -> Response:
+    """Abandon an update that has not been confirmed."""
+    key = _update_key(character_id, update_id)
+    if store.load_pending(key) is None:
+        raise HTTPException(404, f"no update '{update_id}' waiting for confirmation")
+    store.delete(key)
+    return Response(status_code=204)
+
+
+@app.get("/api/characters/{character_id}/updates")
+def list_updates(character_id: str) -> list[dict]:
+    """Printouts read but not yet turned into suggestions."""
+    _require(character_id)
+    pending = []
+    for update_id in store.list_updates(character_id):
+        prepared = store.load_pending(_update_key(character_id, update_id))
+        if prepared is None:
+            continue
+        pending.append(
+            {
+                "id": update_id,
+                "sourceName": prepared.source_name,
+                "pageCount": len(prepared.ingested.pages),
+            }
+        )
+    return pending
+
+
+# --------------------------------------------------------------------------------------
 # Source pages, for the evidence crops
 # --------------------------------------------------------------------------------------
 
@@ -432,9 +626,40 @@ def get_page_image(
     actually make.
 
     Deliberately does not require a character to exist yet: the assignment screen shows
-    these thumbnails before there is one.
+    these thumbnails before there is one. The id is still checked, because without a
+    character to look up there is nothing else standing between it and the filesystem.
     """
-    path = store.pages_dir(character_id) / f"page-{pdf_page:02d}.png"
+    return _page_image(_checked_id(character_id), pdf_page, (x0, y0, x1, y1))
+
+
+@app.get("/api/characters/{character_id}/updates/{update_id}/pages/{pdf_page}")
+def get_update_page_image(
+    character_id: str,
+    update_id: str,
+    pdf_page: int,
+    x0: Annotated[float | None, Query()] = None,
+    y0: Annotated[float | None, Query()] = None,
+    x1: Annotated[float | None, Query()] = None,
+    y1: Annotated[float | None, Query()] = None,
+) -> Response:
+    """A page of a printout that was read back into this character.
+
+    A suggestion is about handwriting on *that* paper, so it has to crop that paper. The
+    original scan is a different document and often a different sheet entirely.
+    """
+    return _page_image(_update_key(character_id, update_id), pdf_page, (x0, y0, x1, y1))
+
+
+def _checked_id(character_id: str) -> str:
+    try:
+        return safe_id(character_id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+def _page_image(key: str, pdf_page: int, crop: tuple) -> Response:
+    x0, y0, x1, y1 = crop
+    path = store.pages_dir(key) / f"page-{pdf_page:02d}.png"
     if not path.exists():
         raise HTTPException(404, f"no image for PDF page {pdf_page}")
 

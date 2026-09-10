@@ -61,6 +61,10 @@ class Evidence(Strict):
     sheetPage: int | None = None
     snippet: str | None = None
     bbox: list[float] | None = None
+    #: Which document the page number refers to: null for the original import, otherwise
+    #: the id of an entry in ``updates``. Without it, a flag raised by re-reading a
+    #: marked-up printout would crop the wrong scan.
+    source: str | None = None
 
 
 class Flag(Strict):
@@ -110,6 +114,23 @@ class SectionRecord(Strict):
     cached: bool | None = None
 
 
+class UpdateRecord(Strict):
+    """One re-reading of a character from a printout.
+
+    Kept because the suggestions it produced outlive it: a flag saying "the printout reads
+    43 here" is unanswerable a week later without knowing which printout, when, and which
+    page of it to crop.
+    """
+
+    id: str
+    appliedAt: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    sourceName: str = ""
+    pages: list[PageRecord] = Field(default_factory=list)
+    sections: list[SectionRecord] = Field(default_factory=list)
+    #: How many suggestions it raised, including ones since resolved.
+    suggested: int = 0
+
+
 class ExtractionReport(Strict):
     """Provenance and review state for one character.
 
@@ -126,6 +147,8 @@ class ExtractionReport(Strict):
     flags: list[Flag] = Field(default_factory=list)
     unmapped: list[UnmappedItem] = Field(default_factory=list)
     sections: list[SectionRecord] = Field(default_factory=list)
+    #: Re-readings of this character from a marked-up printout, oldest first.
+    updates: list[UpdateRecord] = Field(default_factory=list)
 
     # -- queries the UI and CLI both want -------------------------------------------
 
