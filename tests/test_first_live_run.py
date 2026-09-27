@@ -71,7 +71,7 @@ class TestGuardSkillLevels:
 
         assert "awareness" not in skills, "no player marks: the skill should not be reported"
         [flag] = flags
-        assert flag.rule == "skill.ocr_tick_mismatch"
+        assert flag.rule == "ocr.tick_mismatch"
         assert flag.alternatives == ["Trained"], "the model's reading stays one click away"
         assert "printed Basic square" in flag.message
 

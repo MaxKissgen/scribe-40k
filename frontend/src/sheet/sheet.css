@@ -1496,6 +1496,25 @@ label.tick input[type="checkbox"] {
   flex: none;
 }
 
+/*
+ * A single 11px box that is a field in its own right: the Basic column, which a GM may
+ * have ruled on. Its badge has to shrink and move to the *left* corner -- the default
+ * position would sit on top of the Trained box beside it, on a row 11px tall.
+ */
+.field.tickcell {
+  display: inline-flex;
+  flex: none;
+}
+
+.field.tickcell .field__badge {
+  right: auto;
+  left: -0.3rem;
+  top: -0.3rem;
+  width: 0.75rem;
+  height: 0.75rem;
+  font-size: 0.55rem;
+}
+
 /* Flags about the whole document rather than any one field. */
 .reviewbar__document-flags {
   list-style: none;

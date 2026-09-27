@@ -118,7 +118,7 @@ scribe-40k/
 │   ├── ImportAssignment.tsx  drag pages onto the sheet page they are
 │   ├── state.tsx         document, autosave, flag index
 │   └── pointer.ts        the TypeScript half of the pointer vocabulary
-└── tests/                390 tests
+└── tests/                413 tests
 ```
 
 ---
@@ -332,6 +332,26 @@ specialisation lists replace wholesale on merge, so their items arrived without 
 failed validation. `SkillProficiency` now derives its modifier from its level on input,
 which is correct in general: the modifier is a pure function of the level.
 
+One of those printed constants is not quite constant. GMs let their tables use a
+particular Advanced skill untrained, and record it by inking in that skill's
+printed-*empty* Basic square — so `isBasicSkill` is a default rather than a `const`, in
+one direction only. An Advanced skill may be marked Basic; a Basic one may not be
+unmarked, because a printed square cannot be unprinted; and a group skill's square is
+pinned, since it sits on the header row and an override there would apply silently to
+every specialisation written beneath it. `constants.py` still supplies the rulebook answer
+to every skill, and `derive.py` says so when a sheet disagrees — as `info`, because
+nothing is wrong, it simply is not the printed classification.
+
+The scan side is where it gets interesting, because a mark in the Basic column of an
+Advanced skill has two readings: a house rule, or a player who counted the columns from
+the wrong edge and meant Trained. It is read as Trained, which is commoner, and the other
+reading is said out loud on a flag instead of guessed at. The note needs all four boxes to
+have been parsed: the calibration scan returned Tech-Use as three cells rather than four,
+with marks at positions 0 and 2, which says nothing whatever about the Basic column. The
+reasoning model is told to judge it from the image, since a transcription renders an inked
+square and a printed one identically — which is the same trap that produced the guard in
+the first place.
+
 ### Stage 5 · Validate and flag
 
 `jsonschema` 2020-12, plus rule checks that emit **flags rather than errors**:
@@ -342,8 +362,16 @@ which is correct in general: the modifier is a pure function of the level.
 - `currentWounds > totalWounds`, `currentFatePoints > totalFatePoints`,
   `spentExperience > totalExperience`
 - a group-skill specialisation carrying a proficiency but no `subject`
-- `level: "Basic"` on a skill whose printed `isBasicSkill` is false
+- `level: "Basic"` on a skill whose `isBasicSkill` is false — and, as a note rather than
+  an error, an `isBasicSkill` the rulebook disagrees with
 - required-but-null leaves; low model confidence
+
+A flag's rule name decides whether it survives. Rule flags are regenerated from the saved
+document on every save, so anything that records what *happened to* the document rather
+than what is *true of* it has to be named for its origin — `model.`, `ocr.`, `ingest.`,
+`update.` — or it is thrown away the next time the character is opened. Silently, because
+a flag that disappears looks exactly like a flag that was resolved. Both flags the
+transcription guard raises are `ocr.` for this reason.
 
 ### Stage 6 · Report
 

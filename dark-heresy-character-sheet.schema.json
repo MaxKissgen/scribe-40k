@@ -65,7 +65,7 @@
 
     "skills": {
       "title": "Skills",
-      "description": "All skills printed on page 1. 'isBasicSkill' is printed information (the filled black square in the Basic column) and is fixed by the sheet; 'proficiency' is what the player has marked. Skills marked with a dagger on the sheet are group skills and carry an array of specialisations instead of a proficiency of their own.",
+      "description": "All skills printed on page 1. 'isBasicSkill' is printed information (the filled black square in the Basic column); a skill the rulebook calls Advanced may nonetheless be marked Basic where a GM allows it, which the sheet notes as unusual. 'proficiency' is what the player has marked. Skills marked with a dagger on the sheet are group skills and carry an array of specialisations instead of a proficiency of their own.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -79,13 +79,13 @@
       ],
       "properties": {
 
-        "acrobatics": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Ag" }, "isBasicSkill": { "const": false } } },
+        "acrobatics": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Ag" }, "isBasicSkill": { "$ref": "#/$defs/houseRulableBasic" } } },
         "awareness": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Per" }, "isBasicSkill": { "const": true } } },
         "barter": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Fel" }, "isBasicSkill": { "const": true } } },
-        "blather": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Fel" }, "isBasicSkill": { "const": false } } },
+        "blather": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Fel" }, "isBasicSkill": { "$ref": "#/$defs/houseRulableBasic" } } },
         "carouse": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "T" }, "isBasicSkill": { "const": true } } },
         "charm": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Fel" }, "isBasicSkill": { "const": true } } },
-        "chemUse": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "const": false } } },
+        "chemUse": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "$ref": "#/$defs/houseRulableBasic" } } },
 
         "ciphers": {
           "$ref": "#/$defs/groupSkill",
@@ -105,7 +105,7 @@
         "concealment": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Ag" }, "isBasicSkill": { "const": true } } },
         "contortionist": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Ag" }, "isBasicSkill": { "const": true } } },
         "deceive": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Fel" }, "isBasicSkill": { "const": true } } },
-        "demolition": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "const": false } } },
+        "demolition": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "$ref": "#/$defs/houseRulableBasic" } } },
         "disguise": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Fel" }, "isBasicSkill": { "const": true } } },
         "dodge": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Ag" }, "isBasicSkill": { "const": true } } },
 
@@ -125,13 +125,13 @@
 
         "gamble": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "const": true } } },
         "inquiry": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Fel" }, "isBasicSkill": { "const": true } } },
-        "interrogation": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "WP" }, "isBasicSkill": { "const": false } } },
+        "interrogation": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "WP" }, "isBasicSkill": { "$ref": "#/$defs/houseRulableBasic" } } },
         "intimidate": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "S" }, "isBasicSkill": { "const": true } } },
-        "invocation": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "WP" }, "isBasicSkill": { "const": false } } },
-        "lipReading": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Per" }, "isBasicSkill": { "const": false } } },
-        "literacy": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "const": false } } },
+        "invocation": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "WP" }, "isBasicSkill": { "$ref": "#/$defs/houseRulableBasic" } } },
+        "lipReading": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Per" }, "isBasicSkill": { "$ref": "#/$defs/houseRulableBasic" } } },
+        "literacy": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "$ref": "#/$defs/houseRulableBasic" } } },
         "logic": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "const": true } } },
-        "medicae": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "const": false } } },
+        "medicae": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "$ref": "#/$defs/houseRulableBasic" } } },
 
         "navigation": {
           "$ref": "#/$defs/groupSkill",
@@ -151,7 +151,7 @@
           "properties": { "characteristic": { "const": "Ag" }, "isBasicSkill": { "const": false } }
         },
 
-        "psyniscience": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Per" }, "isBasicSkill": { "const": false } } },
+        "psyniscience": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Per" }, "isBasicSkill": { "$ref": "#/$defs/houseRulableBasic" } } },
 
         "scholasticLore": {
           "$ref": "#/$defs/groupSkill",
@@ -168,10 +168,10 @@
           "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "const": false } }
         },
 
-        "security": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Ag" }, "isBasicSkill": { "const": false } } },
-        "shadowing": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Ag" }, "isBasicSkill": { "const": false } } },
+        "security": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Ag" }, "isBasicSkill": { "$ref": "#/$defs/houseRulableBasic" } } },
+        "shadowing": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Ag" }, "isBasicSkill": { "$ref": "#/$defs/houseRulableBasic" } } },
         "silentMove": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Ag" }, "isBasicSkill": { "const": true } } },
-        "sleightOfHand": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Ag" }, "isBasicSkill": { "const": false } } },
+        "sleightOfHand": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Ag" }, "isBasicSkill": { "$ref": "#/$defs/houseRulableBasic" } } },
 
         "speakLanguage": {
           "$ref": "#/$defs/groupSkill",
@@ -179,10 +179,10 @@
           "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "const": false } }
         },
 
-        "survival": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "const": false } } },
+        "survival": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "$ref": "#/$defs/houseRulableBasic" } } },
         "swim": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "S" }, "isBasicSkill": { "const": true } } },
-        "techUse": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "const": false } } },
-        "tracking": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "const": false } } },
+        "techUse": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "$ref": "#/$defs/houseRulableBasic" } } },
+        "tracking": { "$ref": "#/$defs/skill", "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "$ref": "#/$defs/houseRulableBasic" } } },
 
         "trade": {
           "$ref": "#/$defs/groupSkill",
@@ -193,7 +193,7 @@
         "wrangling": {
           "$ref": "#/$defs/skill",
           "description": "Sheet label: 'Wrangling (Int)'. Not a group skill; the blank write-in line printed beneath it on the sheet maps to 'additionalSkills'.",
-          "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "const": false } }
+          "properties": { "characteristic": { "const": "Int" }, "isBasicSkill": { "$ref": "#/$defs/houseRulableBasic" } }
         },
 
         "additionalSkills": {
@@ -564,10 +564,16 @@
       "required": ["characteristic", "isBasicSkill", "proficiency"],
       "properties": {
         "characteristic": { "enum": ["WS", "BS", "S", "T", "Ag", "Int", "Per", "WP", "Fel"], "description": "Governing characteristic, printed in brackets after the skill name." },
-        "isBasicSkill": { "type": "boolean", "description": "Printed information, not a player choice: true where the sheet shows a filled black square in the Basic column." },
+        "isBasicSkill": { "type": "boolean", "description": "True where the sheet shows a filled black square in the Basic column. Printed information for all but a GM's house rule: a skill the rulebook calls Advanced may be marked Basic, and the sheet then notes that this is not the printed classification." },
         "proficiency": { "$ref": "#/$defs/skillProficiency" },
         "notes": { "type": ["string", "null"] }
       }
+    },
+
+    "houseRulableBasic": {
+      "type": "boolean",
+      "default": false,
+      "description": "Advanced in the rulebook, so this is normally false and the Basic column on the printed sheet is an empty square. A GM may rule that their table can use the skill untrained; set true only for such a house rule. It is unusual, and a sheet that carries it says so."
     },
 
     "skillSpecialisation": {

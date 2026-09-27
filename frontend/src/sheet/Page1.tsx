@@ -193,24 +193,108 @@ function SkillRow({
   label: string;
   isBasic: boolean;
 }) {
-  const pointer = ptr("skills", skillKey, "proficiency", "level");
   return (
     <div className="skill">
       <span className="skill__name">{label}</span>
-      <ProficiencyTicks pointer={pointer} isBasic={isBasic} />
+      <ProficiencyTicks
+        pointer={ptr("skills", skillKey, "proficiency", "level")}
+        printedBasic={isBasic}
+        basicPointer={ptr("skills", skillKey, "isBasicSkill")}
+      />
     </div>
+  );
+}
+
+/**
+ * The Basic column, which is printed information for all but a GM's say-so.
+ *
+ * The paper prints a filled square for a Basic Skill and an empty one for an Advanced
+ * skill. Some tables allow a particular Advanced skill to be used untrained anyway, and
+ * mark its square by hand -- so this box is clickable where the rulebook says Advanced,
+ * and inert where it says Basic, since a printed square is part of the form and cannot be
+ * unprinted.
+ *
+ * It carries its own FieldShell because the note about a house rule belongs on the
+ * classification, not on the level beside it.
+ */
+function BasicSquare({
+  pointer,
+  levelPointer,
+  printedBasic,
+  isBasic,
+}: {
+  pointer?: string;
+  levelPointer: string;
+  printedBasic: boolean;
+  isBasic: boolean;
+}) {
+  const { get, set, printMode } = useSheet();
+
+  if (printMode || printedBasic || !pointer) {
+    return (
+      <span className={`tick tick--printed ${isBasic ? "tick--on" : ""}`} aria-hidden="true" />
+    );
+  }
+
+  // Changing the classification settles the resting level with it: a Basic skill is
+  // always usable at half characteristic, an Advanced one not at all. Only the resting
+  // level -- an advance the player ticked is theirs, whatever the column says. Both the
+  // box and the flag's own buttons go through here, so reverting a house rule cannot
+  // leave a skill sitting at "Basic" that is no longer allowed to.
+  const rule = (allowed: boolean) => {
+    set(pointer, allowed);
+    const level = get<ProficiencyLevel>(levelPointer);
+    if (allowed && (level == null || level === "Untrained")) set(levelPointer, "Basic");
+    if (!allowed && level === "Basic") set(levelPointer, "Untrained");
+  };
+
+  return (
+    <FieldShell
+      pointer={pointer}
+      className="tickcell"
+      clearValue={false}
+      // The value arrives as a string when it came from a reading rather than from a
+      // rule's `expected`, and Boolean("false") is true.
+      apply={(value) => rule(value === true || value === "true")}
+    >
+      {() => (
+        <button
+          type="button"
+          className={`tick tick--editable ${isBasic ? "tick--on" : ""}`}
+          aria-label="Basic Skill by house rule"
+          aria-pressed={isBasic}
+          title={
+            isBasic
+              ? "Advanced in the rulebook. This sheet allows it untrained."
+              : "Advanced: not usable untrained. Tick if your GM allows it."
+          }
+          onClick={() => rule(!isBasic)}
+        />
+      )}
+    </FieldShell>
   );
 }
 
 /**
  * The four boxes: Basic, Trained, +10%, +20%.
  *
- * The first is printed information -- filled black for a Basic Skill -- and is not
- * clickable. The other three are the player's marks, and only the rightmost one they have
- * ticked is stored, because that is what the level means.
+ * The first is the printed classification; see `BasicSquare`. The other three are the
+ * player's marks, and only the rightmost one they have ticked is stored, because that is
+ * what the level means.
  */
-function ProficiencyTicks({ pointer, isBasic }: { pointer: string; isBasic: boolean }) {
+function ProficiencyTicks({
+  pointer,
+  printedBasic,
+  basicPointer,
+}: {
+  pointer: string;
+  /** What the rulebook says. The starting point, not necessarily the answer. */
+  printedBasic: boolean;
+  /** Where the sheet's own answer lives. Absent for a specialisation, which has none. */
+  basicPointer?: string;
+}) {
   const { get, set, printMode } = useSheet();
+  const isBasic = basicPointer ? (get<boolean>(basicPointer) ?? printedBasic) : printedBasic;
   const level = get<ProficiencyLevel>(pointer) ?? (isBasic ? "Basic" : "Untrained");
   const reached = ADVANCE_LEVELS.indexOf(level);
 
@@ -227,8 +311,12 @@ function ProficiencyTicks({ pointer, isBasic }: { pointer: string; isBasic: bool
     >
       {() => (
         <>
-          {/* Printed information: filled black for a Basic Skill, and never clickable. */}
-          <span className={`tick tick--printed ${isBasic ? "tick--on" : ""}`} aria-hidden="true" />
+          <BasicSquare
+            pointer={basicPointer}
+            levelPointer={pointer}
+            printedBasic={printedBasic}
+            isBasic={isBasic}
+          />
           {ADVANCE_LEVELS.map((candidate, index) => {
             const on = reached >= index;
             if (printMode) {
@@ -293,7 +381,7 @@ function GroupSkillRow({ skillKey, label }: { skillKey: string; label: string })
               placeholder={examples[index] ?? ""}
               className="skill__subject"
             />
-            <ProficiencyTicks pointer={`${itemPointer}/proficiency/level`} isBasic={false} />
+            <ProficiencyTicks pointer={`${itemPointer}/proficiency/level`} printedBasic={false} />
           </div>
         )}
       </Repeat>

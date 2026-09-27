@@ -66,10 +66,27 @@ class TestPrintedConstants:
             assert spec.characteristic == want, f"{spec.key}: {spec.characteristic} != {want}"
 
     def test_basic_skill_flags_match_schema(self, schema: dict) -> None:
+        """Pinned where the rulebook says Basic; relaxed where it says Advanced.
+
+        A printed square cannot be unprinted, so a Basic Skill stays true by construction.
+        An Advanced one is only *normally* false: a GM may allow their table to use it
+        untrained, so the schema offers the rulebook answer as a default rather than
+        refusing the other.
+        """
         props = schema["properties"]["skills"]["properties"]
         for spec in K.SKILLS:
-            want = props[spec.key]["properties"]["isBasicSkill"]["const"]
-            assert spec.is_basic == want, f"{spec.key}: {spec.is_basic} != {want}"
+            node = props[spec.key]["properties"]["isBasicSkill"]
+            if spec.is_basic:
+                assert node["const"] is True, f"{spec.key} is Basic; the square is printed"
+            elif spec.is_group:
+                assert node["const"] is False, f"{spec.key} is a group skill; no house rule"
+            else:
+                assert node == {"$ref": "#/$defs/houseRulableBasic"}, spec.key
+
+    def test_the_relaxed_basic_flag_still_defaults_to_the_rulebook(self, schema: dict) -> None:
+        node = schema["$defs"]["houseRulableBasic"]
+        assert node["type"] == "boolean"
+        assert node["default"] is False
 
     def test_group_skills_are_exactly_the_daggered_ones(self, schema: dict) -> None:
         props = schema["properties"]["skills"]["properties"]

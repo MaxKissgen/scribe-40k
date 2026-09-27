@@ -323,7 +323,43 @@ def _check_skills(sheet: CharacterSheet) -> list[Finding]:
                     )
             continue
 
-        if skill.proficiency.level == "Basic" and not spec.is_basic:
+        # A GM may let their table use an Advanced skill untrained. The rulebook does not,
+        # so it is worth saying out loud -- once, on the classification itself, and only
+        # as a note. Nothing is wrong with the sheet; it just is not the printed one.
+        if skill.isBasicSkill and not spec.is_basic:
+            out.append(
+                Finding(
+                    f"{ptr}/isBasicSkill",
+                    "skill.basic_by_house_rule",
+                    "info",
+                    (
+                        f"{spec.printed_label} is an Advanced skill in the rulebook -- the "
+                        f"Basic column is printed empty -- but this sheet has it marked "
+                        f"Basic. That is a house rule, not the printed classification."
+                    ),
+                    expected=False,
+                    actual=True,
+                )
+            )
+
+        # The other direction is not offered: the square is printed filled, so turning it
+        # off means the document disagrees with the paper it claims to be.
+        if spec.is_basic and not skill.isBasicSkill:
+            out.append(
+                Finding(
+                    f"{ptr}/isBasicSkill",
+                    "skill.basic_square_missing",
+                    "error",
+                    (
+                        f"{spec.printed_label} is a Basic Skill: the sheet prints a filled "
+                        f"square in its Basic column, and that cannot be unmarked."
+                    ),
+                    expected=True,
+                    actual=False,
+                )
+            )
+
+        if skill.proficiency.level == "Basic" and not skill.isBasicSkill:
             out.append(
                 Finding(
                     f"{ptr}/proficiency/level",

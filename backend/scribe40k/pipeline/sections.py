@@ -269,8 +269,20 @@ The printed skills, with their identifiers, governing characteristics and kind:
 Note two quirks of the printed sheet: "Scholasic Lore" is a typo for Scholastic Lore, and
 "Evaluate" is printed without its "(Int)". Use the identifiers above regardless.
 
-Omit "characteristic", "isBasicSkill" and "modifier" -- all three are printed constants
-filled in afterwards.\
+Omit "characteristic" and "modifier": both are printed constants filled in afterwards.
+
+Omit "isBasicSkill" as well, with one exception. Some GMs let their table use a particular
+Advanced skill untrained, and record it by inking in that skill's printed-empty Basic
+square. Where the *image* shows an Advanced skill whose first box holds a pen stroke
+rather than a printed block, report it:
+
+    "blather": {{"isBasicSkill": true}}
+
+and list the skill under "uncertain". That mark is the classification, not an advance, so
+it does not count towards the level -- a row whose only mark is the Basic square has no
+"proficiency" at all. Judge it from the image alone: the transcription renders an inked
+square and a printed one identically, so it can never be the evidence for this. And never
+report the reverse -- a printed square is part of the form and is never removed.\
 """,
 )
 

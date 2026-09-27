@@ -12,6 +12,11 @@ claims *more* marks than the transcription shows, the level is brought down to w
 evidence supports and the model's reading is kept as a one-click alternative on the flag.
 Where the model claims fewer, it is left alone: it had the image, and the OCR may have
 invented a tick.
+
+Everything raised here is an "ocr." flag. The prefix is not cosmetic: rule flags are
+regenerated from the saved document on every save, and nothing about the document records
+what a transcription said, so a flag from this file filed under any other family would be
+thrown away the next time the character was opened.
 """
 
 from __future__ import annotations
@@ -37,6 +42,9 @@ class RowTicks:
     ticked: int
     #: Boxes of either kind found after the label. Below 3 the row was not really parsed.
     boxes: int
+    #: Whether the *first* box -- the Basic column -- is among them. Printed filled on a
+    #: Basic Skill; on an Advanced one it is either ink or a misread.
+    first: bool = False
 
 
 def _label_pattern(spec: K.SkillSpec) -> re.Pattern[str]:
@@ -71,8 +79,11 @@ def ocr_row_ticks(text: str) -> dict[str, RowTicks]:
                 continue
 
             ticked = boxes = 0
+            first = False
             for cell in cells[start + 1 :]:
                 if cell in (TICKED, EMPTY):
+                    if boxes == 0:
+                        first = cell == TICKED
                     boxes += 1
                     ticked += cell == TICKED
                 elif cell == "":
@@ -80,7 +91,7 @@ def ocr_row_ticks(text: str) -> dict[str, RowTicks]:
                 else:
                     break  # the next label
             if boxes >= 3:
-                found[spec.key] = RowTicks(spec.key, ticked, boxes)
+                found[spec.key] = RowTicks(spec.key, ticked, boxes, first)
                 break
 
     return found
@@ -102,15 +113,21 @@ def guard_skill_levels(
     flags: list[Flag] = []
 
     for key, row in rows.items():
+        spec = K.SKILL_BY_KEY[key]
         entry = skills.get(key)
+        house_ruled = bool(isinstance(entry, dict) and entry.get("isBasicSkill"))
+
+        flags += _basic_column_note(spec, row, house_ruled, sheet_page, pdf_page)
+
         if not isinstance(entry, dict):
             continue
         level = (entry.get("proficiency") or {}).get("level")
         if level not in RANK:
             continue
 
-        spec = K.SKILL_BY_KEY[key]
-        marks = row.ticked - (1 if spec.is_basic else 0)
+        # A house-ruled Basic skill has a filled first square like any other Basic skill,
+        # so the count of *player* marks excludes it either way.
+        marks = row.ticked - (1 if spec.is_basic or house_ruled else 0)
         supported = LEVEL_FOR_MARKS.get(max(marks, 0))
         supported_rank = RANK[supported] if supported else 0
 
@@ -129,14 +146,14 @@ def guard_skill_levels(
         square = (
             " The first box on this row is the printed Basic square, which the "
             "transcription shows as a tick."
-            if spec.is_basic
+            if spec.is_basic or house_ruled
             else ""
         )
         flags.append(
             Flag(
                 pointer=pointer,
                 severity="warning",
-                rule="skill.ocr_tick_mismatch",
+                rule="ocr.tick_mismatch",
                 message=(
                     f"The model read {spec.printed_label} as '{level}', but the "
                     f"transcription shows {what}, which supports "
@@ -150,3 +167,43 @@ def guard_skill_levels(
         )
 
     return flags
+
+
+def _basic_column_note(
+    spec: K.SkillSpec,
+    row: RowTicks,
+    house_ruled: bool,
+    sheet_page: int | None,
+    pdf_page: int | None,
+) -> list[Flag]:
+    """Note a mark in the Basic column of a skill the rulebook calls Advanced.
+
+    The square is printed empty there, so something is in it -- but what, exactly, cannot
+    be settled from a transcription. It is either a GM allowing the skill untrained, or a
+    player who counted the columns from the wrong edge and meant Trained.
+
+    The reading stays Trained, which is both the commoner case and the one already tested,
+    and the alternative is said out loud instead of guessed at. A single tick of the Basic
+    square in the editor is the whole of the correction.
+
+    Unlike the count, this depends on *which* box is marked, so it needs all four. The
+    calibration scan is the argument: Tech-Use came back as three cells rather than four,
+    with the marks at positions 0 and 2 -- which says nothing at all about the Basic
+    column, and would have raised this note on a skill nobody had house-ruled.
+    """
+    if spec.is_basic or house_ruled or not row.first or row.boxes != 4:
+        return []
+    return [
+        Flag(
+            pointer=f"/skills/{spec.key}/isBasicSkill",
+            severity="info",
+            rule="ocr.basic_column_marked",
+            message=(
+                f"The Basic column of {spec.printed_label} is marked, and the sheet "
+                f"prints that square empty -- it is an Advanced skill. Read as a player "
+                f"mark, so it counts towards the level. If your GM allows the skill "
+                f"untrained, tick the Basic square instead."
+            ),
+            evidence=Evidence(sheetPage=sheet_page, pdfPage=pdf_page),
+        )
+    ]

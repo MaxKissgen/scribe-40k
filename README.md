@@ -119,6 +119,13 @@ through the sheet and filled in the last few fields by hand. It asks first, and 
 many are errors, because an error means the sheet does not match the schema there and
 accepting leaves it that way. No value is changed either way.
 
+**The Basic square is yours where the rulebook says Advanced.** The first of a skill's
+four boxes is the printed classification, not a tick box. It stays fixed for a Basic
+Skill, because the paper prints it filled. For an Advanced skill the paper prints it
+empty, and some tables allow the skill untrained anyway — so that one is clickable.
+Ticking it makes the skill usable at half characteristic and leaves a note saying this
+is not what the rulebook prints.
+
 **The save indicator is also the save button.** Editing autosaves a moment after you stop
 typing; clicking *Unsaved changes* saves at once instead of waiting, and clicking *Saved*
 re-saves the sheet — useful for retrying after a failure, or just for watching it happen
@@ -279,6 +286,21 @@ every page is transcribed anyway, the second attempt costs nothing.
 and Basic flag, the armour hit locations, the 32-row minor-power table: all injected from
 `constants.py`. Characteristic bonuses, proficiency modifiers and gear quantities are
 computed. The model is only ever asked what the handwriting says.
+
+**...except where a GM has overruled it.** Some tables let a particular Advanced skill be
+used untrained, and record it by inking in that skill's printed-empty Basic square. So
+`isBasicSkill` is a default rather than a constant, in one direction: an Advanced skill may
+be marked Basic, a Basic one may not be unmarked, and a group skill's square — which sits
+on the header row above every specialisation — is pinned as before. A sheet carrying one
+says so, as a note rather than a complaint, and its resting level follows: the skill
+becomes usable at half characteristic, which is the whole point of the house rule.
+
+A mark in the Basic column of an Advanced skill is genuinely ambiguous on a scan — a house
+rule, or a player who counted the columns from the wrong edge. It is read as Trained,
+which is the commoner case, and the other reading is written on the flag rather than
+guessed at; ticking the square is the whole of the correction. The reasoning model is told
+about all of this, and told to judge it from the image, since a transcription renders an
+inked square and a printed one identically.
 
 **The printed Basic square is not a tick.** Mistral OCR renders the solid square printed
 beside every Basic skill as a ticked box, and a model reading the transcription then

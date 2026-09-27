@@ -37,8 +37,12 @@ _DERIVED = (
 
 #: ...and fields that are printed on the form rather than written by a player. A skill's
 #: governing characteristic does not change because somebody scanned the page badly.
+#:
+#: "/isBasicSkill" is deliberately absent. It is printed for all but a GM's house rule,
+#: and a house rule is exactly the kind of thing that gets decided at the table and marked
+#: on the paper afterwards -- so a printout that has gained an inked Basic square should
+#: offer it like any other change.
 _PRINTED = (
-    "/isBasicSkill",
     "/characteristic",
     "/abbreviation",
     "/location",
@@ -163,6 +167,14 @@ class _Suggester:
 
     def walk(self, was: object, now: object, pointer: str = "") -> None:
         if _is_excluded(pointer):
+            return
+
+        # The Basic column can gain ink -- a GM allowing a skill to be used untrained --
+        # but it is never unprinted. A printout that does not show a square is far likelier
+        # to be a reading that missed one than a house rule somebody rescinded, and a
+        # character with several house rules would otherwise be asked to defend them all
+        # after every update.
+        if pointer.endswith("/isBasicSkill") and not now:
             return
 
         if isinstance(was, dict) and isinstance(now, dict):
