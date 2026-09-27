@@ -412,6 +412,16 @@ body {
   background: var(--paper);
   box-shadow: 0 1px 6px rgb(0 0 0 / 15%);
   position: relative;
+
+  /*
+   * Print the shading too -- the grey characteristic circles, the tinted stat boxes, the
+   * striped skill rows. None of it carries information (the ticks no longer rely on a
+   * background at all), but the printed template has it and a sheet that matches the
+   * paper is easier to read alongside the paper. Inherited, so this one declaration
+   * covers the whole page.
+   */
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
 }
 
 .page--collapsed {
@@ -782,6 +792,7 @@ textarea.field__input {
 }
 
 .tick {
+  position: relative;
   display: inline-block;
   width: var(--tick-size);
   height: var(--tick-size);
@@ -799,8 +810,24 @@ textarea.field__input {
   background: #dce7ff;
 }
 
-.tick--on {
-  background: var(--ink);
+/*
+ * A ticked box is painted with border ink rather than with a background.
+ *
+ * Backgrounds are the first thing a browser drops when it prints. Firefox omits them
+ * unless the person has found the "Print backgrounds" checkbox, and a sheet that prints
+ * every box empty is worse than no sheet at all: it does not look broken, it looks like a
+ * character with no skills, no advances and no weapon training. Borders are foreground
+ * paint and always print.
+ *
+ * A pseudo-element whose border is wider than half its own box has no room left for a
+ * content area, so the border paints the whole square -- which looks exactly like the fill
+ * it replaces, on screen and on paper.
+ */
+.tick--on::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: calc(var(--tick-size) / 2) solid var(--ink);
 }
 
 .tick--printed {

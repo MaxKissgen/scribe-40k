@@ -316,3 +316,76 @@ class TestAnOverflowingSheetRoundTrips:
         for pages in parted.values():
             assert pages == sorted(pages), "parts stay in the order they were printed"
             assert pages[-1] - pages[0] == len(pages) - 1, "a spill is the very next page"
+
+
+class TestTicksSurvivePrinting:
+    """A ticked box must not be drawn with a background.
+
+    Every browser has a "Print backgrounds" checkbox and most people leave it off, so a
+    mark painted as a background simply is not there on paper. That failure is the quiet
+    kind: the sheet does not look broken, it looks like a character with no skills, no
+    advances and no weapon training.
+
+    The check does not measure ink in a box whose position it would have to guess at.
+    Instead it prints two characters that differ only in their ticks, with background paint
+    turned off, and requires the pages to differ. If the ticks are backgrounds, they are
+    both blank grids and the pages are identical.
+    """
+
+    def _marked(self) -> dict:
+        document = blank_character().to_json_dict()
+        document["skills"]["dodge"]["proficiency"] = {"level": "+20"}
+        document["skills"]["awareness"]["proficiency"] = {"level": "+10"}
+        document["advances"]["characteristicAdvances"] = {
+            "weaponSkill": 3,
+            "ballisticSkill": 2,
+        }
+        return document
+
+    @pytest.fixture(scope="class")
+    def pages(self, tmp_path_factory):
+        """Page 1 of each character, rendered without background paint."""
+        from scribe40k import api
+        from scribe40k.export.pdf import temporary_server
+
+        root = tmp_path_factory.mktemp("ticks")
+        store = CharacterStore(root / "characters")
+        # Same name, same everything: the only difference on page 1 is the ticked boxes.
+        store.save("marked", self._marked())
+        store.save("unmarked", blank_character().to_json_dict())
+
+        original = api.store
+        api.store = store
+        try:
+            with temporary_server() as url:
+                rendered = {}
+                for name in ("marked", "unmarked"):
+                    destination = root / f"{name}.pdf"
+                    render_url_to_pdf(f"{url}/print/{name}", destination, print_background=False)
+                    with pymupdf.open(destination) as doc:
+                        pixmap = doc[0].get_pixmap(dpi=110)
+                    rendered[name] = np.frombuffer(pixmap.samples, dtype=np.uint8).reshape(
+                        pixmap.height, pixmap.width, pixmap.n
+                    )
+        finally:
+            api.store = original
+
+        return rendered
+
+    @needs_export
+    def test_the_marks_are_on_the_paper(self, pages) -> None:
+        marked, unmarked = pages["marked"], pages["unmarked"]
+
+        assert marked.shape == unmarked.shape
+        # Five ticked boxes at 110dpi is a few hundred pixels; anything in the hundreds
+        # means they were painted, and zero means they were dropped.
+        differing = int((np.abs(marked.astype(int) - unmarked.astype(int)) > 40).sum())
+        assert differing > 200, "ticked boxes vanished when backgrounds were not printed"
+
+    @needs_export
+    def test_and_the_rest_of_the_page_is_the_same_page(self, pages) -> None:
+        """A guard on the guard: the two renders must be the same sheet, not two layouts."""
+        marked, unmarked = pages["marked"], pages["unmarked"]
+
+        same = int((np.abs(marked.astype(int) - unmarked.astype(int)) <= 40).sum())
+        assert same > 0.98 * marked.size

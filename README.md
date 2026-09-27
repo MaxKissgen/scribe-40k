@@ -292,6 +292,14 @@ flag.
 field (a text field to blank, a checkbox to unticked, a skill to its resting level). Both
 take the flag out of the count. An offered alternative reading applies it instead.
 
+**A tick is drawn with ink, not with a background.** Backgrounds are the first thing a
+browser drops when printing — Firefox omits them unless the person finds the "Print
+backgrounds" checkbox — and a sheet whose boxes all print empty does not look broken, it
+looks like a character with no skills, no advances and no weapon training. Every filled
+box is painted with border ink instead, which always prints and looks identical. The suite
+prints two characters differing only in their ticks, with background paint turned off, and
+requires the pages to differ.
+
 **A flag finds a field even when it does not name one.** Extractors report uncertainty at
 whatever granularity they read: a whole specialisation, one entry of a list, sometimes the
 document. A flag is shown on the control that can answer it — the field itself, else the

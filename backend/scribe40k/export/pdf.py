@@ -61,8 +61,16 @@ def render_url_to_pdf(
     url: str,
     destination: Path,
     options: ExportOptions | None = None,
+    *,
+    print_background: bool = True,
 ) -> Path:
-    """Print one URL to PDF."""
+    """Print one URL to PDF.
+
+    ``print_background`` is the "Print backgrounds" checkbox every browser's print dialog
+    has, and which most people leave off. The export always turns it on, so this exists to
+    be turned *off*: it is how the suite checks that nothing on the sheet depends on
+    background paint to be legible.
+    """
     options = options or ExportOptions()
 
     if options.page_size not in PAGE_SIZES:
@@ -98,7 +106,7 @@ def render_url_to_pdf(
                 path=str(destination),
                 width=width,
                 height=height,
-                print_background=True,
+                print_background=print_background,
                 # The @page rule in print.css already declares the template's size, so let
                 # the stylesheet win where it disagrees with the arguments above.
                 prefer_css_page_size=options.page_size == "native",
